@@ -1,0 +1,2037 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COLORS & LAYOUT CONSTANTS
+// ══════════════════════════════════════════════════════════════════════════════
+const LC = {
+  V:"#3B82F6", A:"#8B5CF6", B:"#10B981",
+  P:"#0EA5E9", AO:"#EF4444", AM:"#DC2626", SYS:"#64748B",
+};
+
+const LANES = [
+  {id:"V",  label:"VISITOR JOURNEY",     color:LC.V,  lx:20,   lw:290},
+  {id:"A",  label:"AUTHENTICATION",      color:LC.A,  lx:330,  lw:260},
+  {id:"B",  label:"PURCHASE FLOW",       color:LC.B,  lx:610,  lw:310},
+  {id:"P",  label:"BUYER ACCOUNT",       color:LC.P,  lx:940,  lw:270},
+  {id:"AO", label:"ADMIN — OPERATIONS",  color:LC.AO, lx:1230, lw:310},
+  {id:"AM", label:"ADMIN — MANAGEMENT",  color:LC.AM, lx:1560, lw:310},
+];
+
+const SZ = {
+  start:   {w:170, h:36},
+  end:     {w:170, h:36},
+  page:    {w:210, h:40},
+  decision:{w:210, h:62},
+  action:  {w:210, h:38},
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NODES
+// ══════════════════════════════════════════════════════════════════════════════
+const NODES = [
+  {id:"entry",         s:"start",    label:"User Visits Site",                    lane:"V",  x:55,   y:80,   c:LC.SYS, desc:"Any user — visitor, buyer, or admin — arrives at the website URL."},
+  {id:"maint_q",       s:"decision", label:"Maintenance\nMode On?",               lane:"V",  x:50,   y:170,  c:LC.SYS, desc:"System checks the maintenance_mode site setting on every request.", outcomes:["YES → Maintenance Page","NO → Continue to Homepage"]},
+  {id:"maint_pg",      s:"page",     label:"Maintenance Page",                    lane:"V",  x:290,  y:174,  c:LC.SYS, desc:"Branded maintenance page shown to all non-admin users. Shows message and estimated return time set by admin."},
+  {id:"homepage",      s:"page",     label:"Homepage",                            lane:"V",  x:55,   y:290,  c:LC.V,   desc:"Main landing page. Hero banner slider, category grid, new arrivals, flash sales slider, testimonials, FAQs, newsletter section."},
+  {id:"browse_q",      s:"decision", label:"What does\nUser Browse?",             lane:"V",  x:50,   y:390,  c:LC.V,   desc:"User decides what to explore from the homepage.", outcomes:["Products","Categories","Search","Flash Sales","New Arrivals","Sale Items"]},
+  {id:"prod_list",     s:"page",     label:"Product Listing",                     lane:"V",  x:55,   y:500,  c:LC.V,   desc:"Paginated product grid with filter sidebar (price range, category, attributes, stock), sort dropdown, and active filter chips."},
+  {id:"cat_pg",        s:"page",     label:"Category Page",                       lane:"V",  x:55,   y:554,  c:LC.V,   desc:"Category landing page showing subcategories as visual cards and filtered products within the category."},
+  {id:"search_pg",     s:"page",     label:"Search Results",                      lane:"V",  x:55,   y:608,  c:LC.V,   desc:"Full-text search results powered by PostgreSQL tsvector/tsquery. Live autocomplete suggestions in search bar. Ranked by relevance."},
+  {id:"flash_pg",      s:"page",     label:"Flash Sales Page",                    lane:"V",  x:55,   y:662,  c:LC.V,   desc:"All currently active flash sales with products, sale prices, countdown timers, and add-to-cart buttons."},
+  {id:"arrivals_pg",   s:"page",     label:"New Arrivals",                        lane:"V",  x:55,   y:716,  c:LC.V,   desc:"Products sorted by createdAt DESC. Shows recently added items with new badge."},
+  {id:"sale_pg",       s:"page",     label:"Sale / Discounted Products",          lane:"V",  x:55,   y:770,  c:LC.V,   desc:"All products where is_on_sale=true or currently in a flash sale. Shows original price crossed out."},
+  {id:"prod_detail",   s:"page",     label:"Product Detail",                      lane:"V",  x:55,   y:860,  c:LC.V,   desc:"Full product page. Image gallery, variant selector, price block (including flash sale countdown if active), description, reviews section, recently viewed, related products."},
+  {id:"size_guide",    s:"action",   label:"Size Guide Modal",                    lane:"V",  x:55,   y:914,  c:LC.V,   desc:"Popup overlay showing measurement chart for the product's category. Only shown if admin has created a size guide for this category."},
+  {id:"compare_pg",    s:"page",     label:"Product Comparison",                  lane:"V",  x:55,   y:968,  c:LC.V,   desc:"Side-by-side comparison table for up to 4 selected products. Shows attributes, price, rating, stock status."},
+  {id:"auth_q",        s:"decision", label:"Action Requires\nLogin?",             lane:"V",  x:50,   y:1058, c:LC.SYS, desc:"Triggered when visitor tries to add to cart, buy now, or add to wishlist.", outcomes:["YES (visitor) → Redirect to Login","NO (buyer/admin) → Continue"]},
+  {id:"about_pg",      s:"page",     label:"About Us",                            lane:"V",  x:55,   y:1160, c:LC.V,   desc:"Brand story page. Admin-managed HTML content via rich text editor. Shows team, mission, CTA to shop."},
+  {id:"contact_pg",    s:"page",     label:"Contact Us",                          lane:"V",  x:55,   y:1212, c:LC.V,   desc:"Contact form (name, email, subject, message). Business info from site settings. Submission creates ContactMessage record and notifies admin."},
+  {id:"faq_pg",        s:"page",     label:"FAQ Page",                            lane:"V",  x:55,   y:1264, c:LC.V,   desc:"Full FAQ page with category tabs and accordion items. All admin-managed."},
+  {id:"policies_pg",   s:"page",     label:"Shipping / Privacy / Terms",          lane:"V",  x:55,   y:1316, c:LC.V,   desc:"Three static policy pages — all admin-managed HTML content via page editor."},
+  {id:"chat_widget",   s:"action",   label:"💬 Live Chat Widget\n(Floating — Every Page)", lane:"V", x:55, y:1376, c:LC.SYS, desc:"Floating chat bubble present on every page. Opens real-time chat panel. Visitor/buyer messages routed to Admin Chat Inbox."},
+  {id:"login_pg",      s:"page",     label:"Login Page",                          lane:"A",  x:345,  y:290,  c:LC.A,   desc:"Login with email/password or Google Sign-In button. Forgot password link. Redirect to signup for new users."},
+  {id:"login_meth",    s:"decision", label:"Login Method?",                       lane:"A",  x:340,  y:382,  c:LC.A,   outcomes:["Google OAuth","Email + Password"]},
+  {id:"google_auth",   s:"action",   label:"Google OAuth Flow",                   lane:"A",  x:345,  y:472,  c:LC.A,   desc:"Google ID token verified server-side. New account auto-created with is_verified=true if first login."},
+  {id:"creds_form",    s:"action",   label:"Email + Password Form",               lane:"A",  x:345,  y:524,  c:LC.A,   desc:"Email and password validated. bcrypt.compare against stored hash."},
+  {id:"creds_q",       s:"decision", label:"Credentials Valid?",                  lane:"A",  x:340,  y:598,  c:LC.A,   outcomes:["YES → Redirect to destination","NO → Show inline error"]},
+  {id:"login_err",     s:"action",   label:"Show Error + Rate Limit",             lane:"A",  x:345,  y:670,  c:LC.A,   desc:"Inline field error shown. After 5 failed attempts per 15 min per IP, rate limiter returns 429."},
+  {id:"anon_merge",    s:"action",   label:"Merge Anonymous Activity",            lane:"A",  x:345,  y:726,  c:LC.A,   desc:"linkAnonymousToUser() called. Anonymous browsing history, recently viewed, and page views merged into the authenticated account."},
+  {id:"signup_pg",     s:"page",     label:"Sign Up Page",                        lane:"A",  x:345,  y:820,  c:LC.A,   desc:"Registration form. Name, email, password, confirm password fields with strength indicator. Terms checkbox."},
+  {id:"country_step",  s:"action",   label:"Country Selection Step",              lane:"A",  x:345,  y:874,  c:LC.A,   desc:"Inline step within signup. Dropdown of countries. Stored on user profile. Affects currency display."},
+  {id:"pw_strength",   s:"action",   label:"Password Strength Check",             lane:"A",  x:345,  y:926,  c:LC.A,   desc:"Real-time password strength indicator. Requires uppercase, lowercase, digit, and special character."},
+  {id:"signup_submit", s:"action",   label:"Account Created",                     lane:"A",  x:345,  y:978,  c:LC.A,   desc:"User inserted with is_verified=false. Verification email dispatched. Welcome email dispatched."},
+  {id:"verify_pg",     s:"page",     label:"Email Verification Page",             lane:"A",  x:345,  y:1040, c:LC.A,   desc:"Token consumed from URL query string. HMAC hash compared against Redis. Sets is_verified=true on match."},
+  {id:"verify_q",      s:"decision", label:"Token Valid?",                        lane:"A",  x:340,  y:1116, c:LC.A,   outcomes:["YES → Auto-redirect to login (3s)","NO → Show error + resend option"]},
+  {id:"resend_opt",    s:"action",   label:"Resend Verification Email",           lane:"A",  x:345,  y:1188, c:LC.A,   desc:"Generates new verification token, stores in Redis (24h TTL), sends new email."},
+  {id:"forgot_pg",     s:"page",     label:"Forgot Password",                     lane:"A",  x:345,  y:1280, c:LC.A,   desc:"Email input. Always returns success message regardless of whether email exists (prevents enumeration)."},
+  {id:"reset_email",   s:"action",   label:"Reset Email Sent",                    lane:"A",  x:345,  y:1334, c:LC.A,   desc:"If user exists: 32-byte token generated, HMAC hash stored in Redis (1h TTL), reset email dispatched."},
+  {id:"reset_pg",      s:"page",     label:"Reset Password Page",                 lane:"A",  x:345,  y:1394, c:LC.A,   desc:"New password + confirm password fields. Token validated from URL. Password updated, all sessions invalidated."},
+  {id:"pw_done",       s:"action",   label:"Password Updated → Login",            lane:"A",  x:345,  y:1450, c:LC.A,   desc:"All active sessions terminated. Confirmation email sent. User redirected to login page."},
+  {id:"buy_now",       s:"action",   label:"Buy Now (Skip Cart)",                 lane:"B",  x:650,  y:200,  c:LC.B,   desc:"Creates a temporary single-item order context. Bypasses cart entirely. Goes directly to checkout."},
+  {id:"cart_pg",       s:"page",     label:"Cart Page",                           lane:"B",  x:650,  y:290,  c:LC.B,   desc:"Cart items with current prices (flash sale prices if active), quantity steppers, remove buttons, stock warnings for changed availability."},
+  {id:"cart_empty_q",  s:"decision", label:"Cart Empty?",                         lane:"B",  x:645,  y:380,  c:LC.B,   outcomes:["YES → Show empty state + shop link","NO → Continue"]},
+  {id:"coupon_inp",    s:"action",   label:"Apply Coupon Code",                   lane:"B",  x:650,  y:458,  c:LC.B,   desc:"Real-time coupon validation via validateCoupon API. Checks code, expiry, usage limit, minimum order amount."},
+  {id:"coupon_q",      s:"decision", label:"Coupon Valid?",                       lane:"B",  x:645,  y:528,  c:LC.B,   outcomes:["YES → Apply discount, show savings","NO → Show specific error code"]},
+  {id:"discount_ok",   s:"action",   label:"Discount Applied to Total",           lane:"B",  x:650,  y:604,  c:LC.B,   desc:"Discount line shown in order summary. Total recalculated. Coupon code locked in for checkout."},
+  {id:"checkout_pg",   s:"page",     label:"Checkout Page",                       lane:"B",  x:650,  y:690,  c:LC.B,   desc:"Final review before payment. Fulfillment selection, address/location, order summary, payment provider selection."},
+  {id:"fulfil_q",      s:"decision", label:"Fulfillment Type?",                   lane:"B",  x:645,  y:774,  c:LC.B,   outcomes:["DELIVERY → Select/add address","PICKUP → Select pickup location"]},
+  {id:"delivery_addr", s:"action",   label:"Select Delivery Address",             lane:"B",  x:570,  y:848,  c:LC.B,   desc:"Dropdown of saved addresses. Option to add new address inline. Required field for delivery orders."},
+  {id:"pickup_loc",    s:"action",   label:"Select Pickup Location",              lane:"B",  x:748,  y:848,  c:LC.B,   desc:"Dropdown of admin-managed pickup locations. Shows name, address, opening hours."},
+  {id:"provider_q",    s:"decision", label:"Payment Provider?",                   lane:"B",  x:645,  y:926,  c:LC.B,   outcomes:["Stripe (card)","PayPal","Paystack (card/bank/USSD)"], desc:"Only shows providers that admin has enabled in site settings."},
+  {id:"payment_pg",    s:"page",     label:"Payment Page",                        lane:"B",  x:650,  y:1010, c:LC.B,   desc:"Provider-specific payment UI. Stripe: card form via Stripe Elements. PayPal: Smart Button. Paystack: redirect to hosted page."},
+  {id:"order_created", s:"action",   label:"Order Created (PENDING)",             lane:"B",  x:650,  y:1082, c:LC.B,   desc:"Transaction: lock variants FOR UPDATE, check stock, snapshot prices, insert order + items + stock reservations (15 min TTL), clear cart."},
+  {id:"payment_q",     s:"decision", label:"Payment Successful?",                 lane:"B",  x:645,  y:1152, c:LC.B,   outcomes:["YES → Confirm order","NO → Cancel + release stock"]},
+  {id:"pay_fail",      s:"action",   label:"Fail: Release Stock + Notify",        lane:"B",  x:860,  y:1156, c:LC.SYS, desc:"handlePaymentFailure: updates transaction to FAILED, order to CANCELLED, calls releaseOrderStock(), sends failure email."},
+  {id:"pay_success",   s:"action",   label:"Commit Stock + Confirm Order",        lane:"B",  x:650,  y:1224, c:LC.B,   desc:"handlePaymentSuccess: commits stock, updates order to CONFIRMED, sends receipt + confirmation emails, broadcasts SSE to admin."},
+  {id:"est_delivery",  s:"action",   label:"Admin Sets Est. Delivery Date",       lane:"B",  x:650,  y:1278, c:LC.SYS, desc:"Optional. When admin updates status to Packed/Out for Delivery, they can set an estimated delivery date shown to buyer."},
+  {id:"order_conf",    s:"page",     label:"Order Confirmation Page",             lane:"B",  x:650,  y:1338, c:LC.B,   desc:"Order reference, tracking number, items, address/pickup location, totals, estimated delivery (if set), invoice download button."},
+  {id:"emails_out",    s:"action",   label:"Emails: Receipt + Confirmation",      lane:"B",  x:650,  y:1396, c:LC.SYS, desc:"sendOrderConfirmationEmail (with PDF invoice attachment) + sendPaymentReceiptEmail dispatched to buyer."},
+  {id:"profile_dash",  s:"page",     label:"Profile Dashboard",                   lane:"P",  x:960,  y:290,  c:LC.P,   desc:"Central account hub. Profile card, order stats, quick links to all account sections."},
+  {id:"edit_profile",  s:"page",     label:"Edit Profile + Avatar",               lane:"P",  x:960,  y:356,  c:LC.P,   desc:"Update name, phone, country. Upload/crop profile picture. Change password form."},
+  {id:"my_orders",     s:"page",     label:"My Orders",                           lane:"P",  x:960,  y:436,  c:LC.P,   desc:"Paginated order list. Filter tabs: All, Pending, Confirmed, Packed, Shipped, Delivered, Cancelled."},
+  {id:"order_detail_b",s:"page",     label:"Order Detail + Tracking",             lane:"P",  x:960,  y:504,  c:LC.P,   desc:"Full order detail. Visual status timeline, tracking number, estimated delivery date, external tracking URL (if set by admin), invoice download."},
+  {id:"sse_notify",    s:"action",   label:"Real-time SSE Status Updates",        lane:"P",  x:960,  y:562,  c:LC.P,   desc:"When admin updates order status, buyer receives instant SSE notification popup AND order detail page updates live without refresh."},
+  {id:"write_review",  s:"page",     label:"Write / Edit Review",                 lane:"P",  x:960,  y:632,  c:LC.P,   desc:"Star rating (1-5) + written review. Only available to buyers with DELIVERED order containing this product."},
+  {id:"review_approve_q",s:"decision",label:"Auto-Approve Reviews?",              lane:"P",  x:955,  y:702,  c:LC.SYS, desc:"Controlled by admin's require_review_approval site setting.", outcomes:["require_review_approval=false → Live immediately","true → Pending admin approval"]},
+  {id:"addresses_pg",  s:"page",     label:"Saved Addresses",                     lane:"P",  x:960,  y:796,  c:LC.P,   desc:"Manage multiple delivery addresses. Set default address. Add/edit/delete. Default address pre-selected at checkout."},
+  {id:"wishlists_pg",  s:"page",     label:"My Wishlists",                        lane:"P",  x:960,  y:864,  c:LC.P,   desc:"Multiple named wishlists (Birthday List, Christmas List, etc.). Create new list, rename, delete list."},
+  {id:"wishlist_det",  s:"page",     label:"Wishlist Detail",                     lane:"P",  x:960,  y:932,  c:LC.P,   desc:"Products in a specific wishlist. Add to cart buttons. Move item to another wishlist. Remove item."},
+  {id:"recent_pg",     s:"page",     label:"Recently Viewed",                     lane:"P",  x:960,  y:1002, c:LC.P,   desc:"Last 20 viewed products ordered by most recent. Works for logged-in buyers. Anonymous visitors tracked via cookie."},
+  {id:"my_reviews",    s:"page",     label:"My Reviews",                          lane:"P",  x:960,  y:1072, c:LC.P,   desc:"All reviews written by this buyer. Star rating, comment, product link, approval status badge. Buyer can edit (not delete)."},
+  {id:"mark_helpful",  s:"action",   label:"Mark Review Helpful",                 lane:"P",  x:960,  y:1128, c:LC.P,   desc:"ReviewHelpful junction record created. One vote per user per review. Helpful count shown on review."},
+  {id:"saved_search",  s:"page",     label:"Saved Searches + Alerts",             lane:"P",  x:960,  y:1198, c:LC.P,   desc:"Bookmarked search queries. When new product matches a saved search, buyer gets notified via email and SSE notification."},
+  {id:"notif_pg",      s:"page",     label:"Notifications Inbox",                 lane:"P",  x:960,  y:1268, c:LC.P,   desc:"Full persistent notification history. All past notifications stored in DB. Mark as read individually or all at once."},
+  {id:"notif_prefs",   s:"page",     label:"Notification Preferences",            lane:"P",  x:960,  y:1338, c:LC.P,   desc:"Toggles: order status updates, promotional emails, newsletter. Newsletter subscribe/unsubscribe button."},
+  {id:"admin_login",   s:"start",    label:"Admin Login",                         lane:"AO", x:1260, y:80,   c:LC.AO,  desc:"Same login flow but role=admin. Redirects to Admin Dashboard instead of buyer homepage."},
+  {id:"admin_dash",    s:"page",     label:"Admin Dashboard",                     lane:"AO", x:1260, y:170,  c:LC.AO,  desc:"Store overview: today's revenue, orders, new users, low-stock count, 7-day chart, traffic summary, recent orders, unread messages badge. Live SSE updates."},
+  {id:"admin_prods",   s:"page",     label:"Product Management",                  lane:"AO", x:1260, y:260,  c:LC.AO,  desc:"All products table with search, filter (category/status/stock). Bulk activate/deactivate. Status toggles. Link to add/edit."},
+  {id:"admin_add",     s:"page",     label:"Add / Edit Product",                  lane:"AO", x:1260, y:326,  c:LC.AO,  desc:"Product form: name, multi-select categories, rich text description, auto-generated slug, active toggle. After save → Variant Manager."},
+  {id:"admin_vars",    s:"page",     label:"Variant + Image Manager",             lane:"AO", x:1260, y:392,  c:LC.AO,  desc:"Manage variants: name, SKU, price, sale_price, is_on_sale toggle, stock_quantity, JSONB attributes. Image upload (max 8, drag to reorder per variant)."},
+  {id:"admin_cats",    s:"page",     label:"Category Management",                 lane:"AO", x:1260, y:472,  c:LC.AO,  desc:"Full category tree with drag-to-reorder. Create subcategories at any depth. Edit names, images, sort order. Cascade delete warning."},
+  {id:"admin_size",    s:"page",     label:"Size Guide Manager",                  lane:"AO", x:1260, y:538,  c:LC.AO,  desc:"Create measurement charts and assign them to categories. Buyers see 'Size Guide' link on relevant product pages."},
+  {id:"admin_banners", s:"page",     label:"Banner Management",                   lane:"AO", x:1260, y:604,  c:LC.AO,  desc:"Homepage hero slider banners. Upload image, set headline, subtitle, CTA text, link destination. Drag to reorder. Toggle active."},
+  {id:"admin_flash",   s:"page",     label:"Flash Sale Manager",                  lane:"AO", x:1260, y:684,  c:LC.AO,  desc:"Create flash sales with name, start/end times. Add specific variants with sale prices. Multiple concurrent sales supported."},
+  {id:"admin_coupons", s:"page",     label:"Coupon Management",                   lane:"AO", x:1260, y:750,  c:LC.AO,  desc:"Create discount codes: percent or fixed. Set min order amount, max uses, expiry. Usage stats per coupon. Deactivate/delete."},
+  {id:"admin_pickup",  s:"page",     label:"Pickup Location Manager",             lane:"AO", x:1260, y:816,  c:LC.AO,  desc:"Manage pickup points: name, full address, city, state, phone, opening hours, active toggle. Buyers select from these at checkout."},
+  {id:"admin_orders",  s:"page",     label:"Order Management",                    lane:"AO", x:1260, y:896,  c:LC.AO,  desc:"All orders table. Filter by status, date range, fulfillment type, customer email. Export CSV. Click to view detail."},
+  {id:"admin_ord_det", s:"page",     label:"Order Detail (Admin)",                lane:"AO", x:1260, y:962,  c:LC.AO,  desc:"Full order view. Status update dropdown with optional comment. Optional estimated delivery date picker. Tracking URL input. Refund button."},
+  {id:"admin_status_flow",s:"action",label:"Order State Machine",                 lane:"AO", x:1260, y:1030, c:LC.AO,  desc:"Valid transitions: PENDING→CONFIRMED→PACKED→OUT_FOR_DELIVERY|READY_FOR_PICKUP→DELIVERED|PICKED_UP. Each transition sends SSE + email to buyer."},
+  {id:"admin_customers",s:"page",    label:"Customer Management",                 lane:"AO", x:1260, y:1106, c:LC.AO,  desc:"All registered buyers. Search by name/email. View order history, total spent, last active. Account details."},
+  {id:"admin_reviews", s:"page",     label:"Review Management",                   lane:"AM", x:1590, y:260,  c:LC.AM,  desc:"Pending reviews tab (when require_review_approval=true). Approve or delete reviews. Toggle approval requirement setting."},
+  {id:"admin_contact", s:"page",     label:"Contact Messages",                    lane:"AM", x:1590, y:326,  c:LC.AM,  desc:"Inbox of all contact form submissions. Filter unread/unreplied. Read full message. Reply via rich text form. Delete messages."},
+  {id:"admin_chat",    s:"page",     label:"Live Chat Inbox",                     lane:"AM", x:1590, y:392,  c:LC.AM,  desc:"All active and past chat sessions. Real-time messaging via SSE. Unread chat count badge in sidebar. Close session when resolved."},
+  {id:"admin_sales",   s:"page",     label:"Sales Report",                        lane:"AM", x:1590, y:472,  c:LC.AM,  desc:"Date range picker. KPI cards: revenue, orders, avg order value. Daily revenue line chart. Top 10 products bar chart. Export CSV."},
+  {id:"admin_traffic", s:"page",     label:"Traffic Analytics",                   lane:"AM", x:1590, y:538,  c:LC.AM,  desc:"Visitor funnel: Visits → Viewed Product → Added to Cart → Checkout → Purchased. Conversion rate, cart abandonment rate."},
+  {id:"admin_inv",     s:"page",     label:"Inventory Report",                    lane:"AM", x:1590, y:604,  c:LC.AM,  desc:"All variants with current stock. LOW/OK/OUT badges. Sorted by stock ascending. Export CSV."},
+  {id:"admin_settings",s:"page",     label:"Site Settings",                       lane:"AM", x:1590, y:684,  c:LC.AM,  desc:"General, Shipping, Payment providers, Reviews, Stock threshold, Email, Social links, Currency, Maintenance mode toggle."},
+  {id:"admin_pages",   s:"page",     label:"Page Editor",                         lane:"AM", x:1590, y:750,  c:LC.AM,  desc:"WYSIWYG rich text editor for: About Us, Contact Us, Terms & Conditions, Privacy Policy, Shipping Policy."},
+  {id:"admin_faq",     s:"page",     label:"FAQ Management",                      lane:"AM", x:1590, y:816,  c:LC.AM,  desc:"FAQ categories and items with drag-to-reorder. Question, answer, active toggle per item."},
+  {id:"admin_newsletter",s:"action", label:"Newsletter Auto-Trigger",             lane:"AM", x:1590, y:896,  c:LC.AM,  desc:"Automatically sends newsletter to all is_subscribed=true buyers when: new product added OR flash sale created."},
+  {id:"admin_saved_search",s:"action",label:"Saved Search Alert Trigger",         lane:"AM", x:1590, y:952,  c:LC.AM,  desc:"When admin adds a new product, checkSavedSearchMatches() runs. Notifies buyers whose saved searches match via email + SSE."},
+  {id:"cron_jobs",     s:"action",   label:"Scheduled Cron Jobs",                 lane:"AM", x:1590, y:1022, c:LC.AM,  desc:"Every 5min: cancel expired orders. Every 10min: cleanup reservations. Every 1min: end expired flash sales. Every 6h: low stock alerts."},
+];
+
+const NMAP = Object.fromEntries(NODES.map(n=>[n.id,n]));
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EDGES
+// ══════════════════════════════════════════════════════════════════════════════
+const EDGES = [
+  {f:"entry",t:"maint_q",label:""},{f:"maint_q",t:"maint_pg",label:"YES"},{f:"maint_q",t:"homepage",label:"NO"},
+  {f:"homepage",t:"browse_q",label:""},{f:"browse_q",t:"prod_list",label:"Products"},{f:"browse_q",t:"cat_pg",label:"Category"},
+  {f:"browse_q",t:"search_pg",label:"Search"},{f:"browse_q",t:"flash_pg",label:"Flash Sales"},
+  {f:"browse_q",t:"arrivals_pg",label:"New In"},{f:"browse_q",t:"sale_pg",label:"Sale"},
+  {f:"prod_list",t:"prod_detail",label:"Click Product"},{f:"cat_pg",t:"prod_detail",label:"Click Product"},
+  {f:"search_pg",t:"prod_detail",label:"Click Result"},{f:"flash_pg",t:"prod_detail",label:"Click Product"},
+  {f:"arrivals_pg",t:"prod_detail",label:"Click Product"},{f:"sale_pg",t:"prod_detail",label:"Click Product"},
+  {f:"prod_detail",t:"size_guide",label:"Size Guide Link"},{f:"prod_detail",t:"compare_pg",label:"Compare Button"},
+  {f:"prod_detail",t:"auth_q",label:"Add to Cart / Wishlist"},{f:"homepage",t:"about_pg",label:"About Link"},
+  {f:"homepage",t:"contact_pg",label:"Contact Link"},{f:"homepage",t:"faq_pg",label:"FAQ Section"},
+  {f:"homepage",t:"policies_pg",label:"Footer Links"},{f:"auth_q",t:"login_pg",label:"Not Logged In → Redirect"},
+  {f:"auth_q",t:"cart_pg",label:"Logged In → Add to Cart"},{f:"auth_q",t:"wishlists_pg",label:"Logged In → Wishlist"},
+  {f:"prod_detail",t:"buy_now",label:"Buy Now"},{f:"buy_now",t:"checkout_pg",label:"Skip Cart"},
+  {f:"login_pg",t:"login_meth",label:""},{f:"login_meth",t:"google_auth",label:"Google"},
+  {f:"login_meth",t:"creds_form",label:"Email/PW"},{f:"google_auth",t:"anon_merge",label:"Verified"},
+  {f:"creds_form",t:"creds_q",label:"Submit"},{f:"creds_q",t:"login_err",label:"NO"},
+  {f:"creds_q",t:"anon_merge",label:"YES"},{f:"anon_merge",t:"homepage",label:"→ Redirect Back"},
+  {f:"login_pg",t:"signup_pg",label:"Create Account"},{f:"login_pg",t:"forgot_pg",label:"Forgot Password"},
+  {f:"signup_pg",t:"country_step",label:"Fill Form"},{f:"country_step",t:"pw_strength",label:""},
+  {f:"pw_strength",t:"signup_submit",label:"Submit"},{f:"signup_submit",t:"verify_pg",label:"→ Check Email"},
+  {f:"verify_pg",t:"verify_q",label:"Token from URL"},{f:"verify_q",t:"login_pg",label:"YES → Login"},
+  {f:"verify_q",t:"resend_opt",label:"NO → Expired"},{f:"forgot_pg",t:"reset_email",label:"Submit Email"},
+  {f:"reset_email",t:"reset_pg",label:"Click Email Link"},{f:"reset_pg",t:"pw_done",label:"Submit"},
+  {f:"pw_done",t:"login_pg",label:"→ Login"},{f:"cart_pg",t:"cart_empty_q",label:""},
+  {f:"cart_empty_q",t:"coupon_inp",label:"NO — Has Items"},{f:"cart_empty_q",t:"prod_list",label:"YES — Continue Shopping"},
+  {f:"coupon_inp",t:"coupon_q",label:"Apply Code"},{f:"coupon_q",t:"discount_ok",label:"YES"},
+  {f:"discount_ok",t:"checkout_pg",label:"Proceed"},{f:"coupon_q",t:"checkout_pg",label:"NO / Skip Coupon"},
+  {f:"checkout_pg",t:"fulfil_q",label:""},{f:"fulfil_q",t:"delivery_addr",label:"DELIVERY"},
+  {f:"fulfil_q",t:"pickup_loc",label:"PICKUP"},{f:"delivery_addr",t:"provider_q",label:""},
+  {f:"pickup_loc",t:"provider_q",label:""},{f:"provider_q",t:"payment_pg",label:""},
+  {f:"payment_pg",t:"order_created",label:"Place Order"},{f:"order_created",t:"payment_q",label:""},
+  {f:"payment_q",t:"pay_fail",label:"NO"},{f:"payment_q",t:"pay_success",label:"YES"},
+  {f:"pay_success",t:"est_delivery",label:""},{f:"est_delivery",t:"order_conf",label:""},
+  {f:"order_conf",t:"emails_out",label:""},{f:"order_conf",t:"my_orders",label:"View My Orders"},
+  {f:"order_conf",t:"profile_dash",label:"Go to Account"},{f:"profile_dash",t:"edit_profile",label:"Edit"},
+  {f:"profile_dash",t:"my_orders",label:"Orders"},{f:"my_orders",t:"order_detail_b",label:"View"},
+  {f:"order_detail_b",t:"sse_notify",label:"Live Updates"},{f:"order_detail_b",t:"write_review",label:"Write Review"},
+  {f:"write_review",t:"review_approve_q",label:"Submit"},{f:"profile_dash",t:"addresses_pg",label:"Addresses"},
+  {f:"profile_dash",t:"wishlists_pg",label:"Wishlists"},{f:"wishlists_pg",t:"wishlist_det",label:"Open List"},
+  {f:"wishlist_det",t:"cart_pg",label:"Add to Cart"},{f:"profile_dash",t:"recent_pg",label:"History"},
+  {f:"profile_dash",t:"my_reviews",label:"Reviews"},{f:"my_reviews",t:"mark_helpful",label:"Helpful Vote"},
+  {f:"profile_dash",t:"saved_search",label:"Saved Searches"},{f:"profile_dash",t:"notif_pg",label:"Notifications"},
+  {f:"profile_dash",t:"notif_prefs",label:"Preferences"},{f:"admin_login",t:"admin_dash",label:""},
+  {f:"admin_dash",t:"admin_prods",label:"Products"},{f:"admin_prods",t:"admin_add",label:"Add / Edit"},
+  {f:"admin_add",t:"admin_vars",label:"After Save"},{f:"admin_prods",t:"admin_cats",label:"Categories"},
+  {f:"admin_cats",t:"admin_size",label:"Size Guides"},{f:"admin_dash",t:"admin_banners",label:"Banners"},
+  {f:"admin_dash",t:"admin_flash",label:"Flash Sales"},{f:"admin_flash",t:"admin_newsletter",label:"Auto-trigger"},
+  {f:"admin_add",t:"admin_newsletter",label:"New Product"},{f:"admin_add",t:"admin_saved_search",label:"New Product Alert"},
+  {f:"admin_dash",t:"admin_coupons",label:"Coupons"},{f:"admin_dash",t:"admin_pickup",label:"Pickup Locations"},
+  {f:"admin_dash",t:"admin_orders",label:"Orders"},{f:"admin_orders",t:"admin_ord_det",label:"View"},
+  {f:"admin_ord_det",t:"admin_status_flow",label:"Update Status"},{f:"admin_status_flow",t:"sse_notify",label:"→ Buyer SSE"},
+  {f:"admin_dash",t:"admin_customers",label:"Customers"},{f:"admin_dash",t:"admin_reviews",label:"Reviews"},
+  {f:"admin_dash",t:"admin_contact",label:"Messages"},{f:"admin_dash",t:"admin_chat",label:"Live Chat"},
+  {f:"admin_dash",t:"admin_sales",label:"Sales Report"},{f:"admin_dash",t:"admin_traffic",label:"Traffic"},
+  {f:"admin_dash",t:"admin_inv",label:"Inventory"},{f:"admin_dash",t:"admin_settings",label:"Settings"},
+  {f:"admin_settings",t:"admin_pages",label:"Page Editor"},{f:"admin_settings",t:"admin_faq",label:"FAQ"},
+  {f:"admin_dash",t:"cron_jobs",label:"Auto (background)"},
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAGE DATA — BATCH 1
+// ══════════════════════════════════════════════════════════════════════════════
+const PAGE_DATA = {
+  homepage: {
+    purpose:"Primary entry point for all visitors and returning buyers. Drives brand awareness, product discovery, and conversion through curated sections — all dynamically controlled by the admin.",
+    overview:"The Homepage assembles every major discovery pathway in a single scroll. Its sections are independently admin-managed: banners rotate, products refresh, flash sales appear and expire automatically, and testimonials surface the most-helpful reviews. The page renders a different navigation state depending on whether the user is an anonymous visitor, an authenticated buyer, or an admin. Flash Sales section is completely hidden when no active sales exist.",
+    sections:[
+      {num:"01",name:"Top Navigation Bar",description:"Persistent global header present on every public-facing page. Houses primary navigation, global search with live autocomplete, wishlist shortcut, cart icon with live item-count badge, and user authentication state indicator.",components:["Logo — SVG or image asset, links back to Homepage","Primary nav links: Home, Shop, Flash Sales, Categories, New Arrivals","Search bar — on focus triggers live autocomplete dropdown via debounced API call","Wishlist icon — heart icon; redirects to Login if visitor with return_to param","Cart icon — bag icon with floating circular badge (0–99, then '99+'); links to Cart Page","User avatar — circular, shows initials; hover reveals dropdown: My Account, My Orders, Notifications, Logout","Login / Register CTAs — shown only when no session is active","Announcement bar (optional) — one-line admin-managed promo text above nav; toggled in Site Settings"]},
+      {num:"02",name:"Hero Banner Slider",description:"Full-width rotating promotional banner, 100% admin-managed. Each slide has a background image panel, headline, subtitle, primary CTA, and optional secondary CTA. Supports multiple slides, auto-rotates every 5 seconds, pauses on hover.",components:["SliderContainer — full viewport width, fixed height (~220–260px)","SlideItem — two-column layout: content column (left 55%) + image panel (right 45%)","Eyebrow/tag label — small category or promo tag above headline","Headline text — H1 equivalent, admin-set, max 2 lines","Subtitle text — optional body line","Primary CTA button — filled; admin-configured label and destination","Secondary CTA button — outlined; optional","Banner image — admin-uploaded, right panel","Prev / Next arrows — semi-transparent circular buttons","Pagination dots — active dot wider than inactive","Auto-rotation timer — 5 s interval, resets on manual interaction"]},
+      {num:"03",name:"Trust Badges Row",description:"Four evenly-divided horizontal cells immediately below the hero. Each cell presents an icon, a bold short label, and a supporting sub-label. Builds buyer confidence at the first visible scroll position.",components:["TrustBadgeCell × 4: Truck / Free Shipping · Shield / Warranty Guaranteed · Refresh / Easy Returns · Headset / 24/7 Support","Horizontal dividers between cells (desktop); 2×2 grid on tablet/mobile"]},
+      {num:"04",name:"Category Grid — Shop by Category",description:"Two rows of five category cards, dynamically pulled from the DB sorted by admin sort_order. Clicking any card navigates to the Category Page.",components:["SectionHeader — title, subtitle, 'View All' link (→ all products)","CategoryCard × 10 — image thumbnail (square/rounded), category name label below","Section hidden if no active categories exist","Data: SELECT id, name, image FROM categories WHERE parent_id IS NULL AND is_active=true ORDER BY sort_order LIMIT 10"]},
+      {num:"05",name:"New Arrivals Section",description:"Horizontally tab-filterable product grid showing the most recently added products. Tab filter navigates by top-level category.",components:["SectionHeader — 'New Arrivals'","TabFilter pills — All, Men, Women, Kids, Accessories etc.; 'All' selected by default","ProductCard × 4 — image, 'New' badge, wishlist button, name, price, star rating, 'Add to Cart' button","ProductCard states: in-stock / low-stock ('Only N left') / out-of-stock / sale (sale price + strikethrough)"]},
+      {num:"06",name:"About Us Snippet",description:"Brand story teaser. Text column: eyebrow, headline, body excerpt, CTA. Image column: brand lifestyle photo. Both pulled from the same Page Editor record as the full About Us page.",components:["Two-column grid: text left, image right","Eyebrow label — 'About Us' small caps","Headline — admin-set H2-level text","Body excerpt — first N characters of About Us content","CTA — 'Explore Our Story' → /about","Brand image — admin-uploaded via About Us page editor"]},
+      {num:"07",name:"Flash Sales Section",description:"Dynamically rendered showcase of all currently active flash sales. Hidden entirely when no active flash sales exist. Countdown timer counts to the earliest flash sale end_time.",components:["SectionHeader + 'View All Flash Sales' link","CountdownTimer — D:H:M:S, updates every 1 second, counts to earliest active flash sale end_time","FlashSaleCard × up to 4 — image, sale badge (-X%), name, sale price, strikethrough original, sold-% progress bar","Entire section hidden when NOW() is outside all flash sale windows"]},
+      {num:"08",name:"Customer Testimonials",description:"Up to 6 approved reviews ranked by helpful_count DESC, rating DESC. Three-column grid with two pages accessible via pagination dots. Auto-cycles every 6 seconds.",components:["SectionHeader — 'What Our Clients Say'","TestimonialCard × 3 visible — star rating, review body (3-line clamp), reviewer avatar, reviewer first name, 'Verified Purchase' label","Pagination dots — page 1 (cards 1–3) / page 2 (cards 4–6)","Data: SELECT reviews WHERE is_approved=true ORDER BY helpful_count DESC, rating DESC LIMIT 6"]},
+      {num:"09",name:"FAQ Accordion Snippet",description:"Preview of the first 4 FAQ items ordered by admin sort_order. First item expanded by default. 'View All FAQs' link navigates to the full FAQ page.",components:["SectionHeader — 'Frequently Asked Questions'","AccordionItem × 4 — question text (trigger), answer body (animated collapse/expand), chevron icon","First item pre-expanded on page load","'View All FAQs' text link → /faq"]},
+      {num:"10",name:"Newsletter Subscription",description:"Email capture for registered buyers. Sets is_subscribed=true on the buyer record. Visitors are prompted to create an account first.",components:["Section container — differentiated background","Headline + subtitle","Email input field — inline with Subscribe CTA button","Sub-note — 'Available to signed-up buyers only · Unsubscribe anytime'","Success state: 'Subscribed! You'll hear from us soon.'","Error state: 'No account found — please register first.'"]},
+      {num:"11",name:"Footer",description:"Global footer on every public page. Four-column layout: brand info + social, Help, Company, Categories. Bottom bar: copyright + payment provider badges.",components:["Brand column — logo, short description, 4 social media icon buttons (Instagram, Facebook, Twitter, YouTube)","Help column — Contact Us, FAQ, Shipping Policy, Returns Policy","Company column — About Us, Careers, Privacy Policy, Terms & Conditions","Categories column — top-level category links (dynamic from DB)","Bottom bar — copyright string, Stripe / PayPal / Paystack badges"]},
+      {num:"12",name:"Floating Live Chat Widget",description:"Persistent circular FAB anchored bottom-right on every public page. Opens a sliding chat panel. Supports anonymous visitors (session-tracked) and authenticated buyers (linked to account).",components:["Chat bubble FAB — circular, fixed position, bottom-right, high z-index","Unread badge — red dot when admin has sent an unread message","Chat panel (on open) — slides up; agent name header; scrollable message thread; text input + send","Anonymous session: identified by session_id cookie","Authenticated buyer: linked to user.id"]}
+    ],
+    states:[
+      "Visitor (unauthenticated): nav shows Login/Register; cart badge hidden or zero; wishlist redirects to login",
+      "Buyer (authenticated): nav shows user avatar with dropdown; cart badge shows real count from DB/session",
+      "No active flash sales: Flash Sales section is completely hidden — no empty frame",
+      "No categories configured: Category Grid section is hidden",
+      "Maintenance mode ON: this page replaced entirely by the Maintenance Page for non-admin users",
+      "Page loading: product sections show skeleton card placeholders (animated grey boxes)",
+      "Mobile viewport: hamburger menu; product grids collapse to 2 columns then 1 column"
+    ],
+    dataRequirements:[
+      "GET /api/banners — active banners ordered by sort_order",
+      "GET /api/categories?root=true&limit=10 — top-level categories for grid",
+      "GET /api/products?sort=newest&limit=8 — new arrivals with variant images + avg_rating",
+      "GET /api/flash-sales/active — active flash sales with product variants + sale prices",
+      "GET /api/reviews?approved=true&sort=helpful&limit=6 — testimonials",
+      "GET /api/faqs?limit=4&sort=order — first 4 FAQ items",
+      "Auth state: from JWT cookie / session token (SSR-accessible)",
+      "Cart count: authenticated → DB cart_items count; visitor → localStorage"
+    ],
+    designNotes:[
+      "Hero slider must pause on hover (WCAG 2.1 accessibility requirement for auto-rotating content)",
+      "Countdown timer must NOT cause layout reflow on each tick — only update text content nodes",
+      "All product images lazy-loaded; hero banner image eagerly loaded (preload link in <head>)",
+      "Flash Sales section rendered conditionally server-side — no empty wrapper div should appear on screen",
+      "Newsletter form: POST /api/newsletter/subscribe — 200 on success, 404 if email not a registered buyer",
+      "About Us snippet pulls from the same DB record as /about — zero admin duplication"
+    ]
+  },
+  prod_list:{
+    purpose:"Primary browsable catalogue view. Allows buyers and visitors to discover, filter, sort, and paginate through all active products. Entry point to Product Detail pages.",
+    overview:"The Product Listing page serves as the catalogue backbone. It renders a two-column layout — a persistent filter sidebar on the left and a responsive product grid on the right. The page adapts its heading, result count, and pre-applied filters based on entry context (All Products vs. a specific category vs. a search query). Filter state is reflected in the URL query string to support deep-linking and browser back navigation.",
+    sections:[
+      {num:"01",name:"Top Navigation Bar",description:"Same persistent global header. Search bar shows the current query pre-filled if the page was reached via a search.",components:["NavigationBar — same component as Homepage Section 01","Search bar — pre-populated with query string when loaded from a search action"]},
+      {num:"02",name:"Breadcrumb Bar",description:"Single-line contextual breadcrumb below the nav. Reflects current navigation depth. Updates based on how the page was reached.",components:["Breadcrumb — horizontal list separated by '›'","Example paths: Home › Shop · All Products / Home › Women / Home › Search: 'blazer'","Last crumb is non-linked (current page)"]},
+      {num:"03",name:"Page Header + Results Info + View Toggle",description:"Row between breadcrumb and main grid area. Shows page title, total matching product count, sort dropdown, and grid/list view toggle.",components:["Page title — H1, dynamically set: 'All Products', 'Women', 'Search: blazer', etc.","Results count — 'Showing X of Y products'","Sort dropdown — Newest First, Price: Low→High, Price: High→Low, Most Popular, Best Rated","View toggle — grid icon (active) / list icon; toggles layout between grid and list mode","Mobile: sort + toggle collapse into a bottom sheet 'Sort & Filter' button"]},
+      {num:"04",name:"Active Filter Chips",description:"Horizontal row of dismissible chips showing currently active filter selections. Each chip has a × to remove that filter. 'Clear All' removes all at once. Hidden when no filters are active.",components:["FilterChip × N — label text + × dismiss button","'Clear All' button — secondary style, far right","Row hidden when no filters active"]},
+      {num:"05",name:"Filter Sidebar",description:"Fixed-width left sidebar (200px desktop). Each section collapsible via chevron toggle. Filter changes applied immediately — no Apply button needed. URL query string updates to reflect state.",components:["Categories — checkbox list with product count per category; 'Show more' expand link if >5 items","Price Range — dual-handle range slider; min/max input boxes","Size — button-style pill selectors; multi-select","Colour — circular colour swatches (18×18px); multi-select; selected state shows 2px ring","Star Rating — checkbox list: ★★★★★ through ★★★☆☆ with count per tier","In Stock Only — toggle switch (on by default in some views)","On Sale Only — toggle switch","Mobile: sidebar becomes a bottom sheet / drawer triggered by 'Filter' button"]},
+      {num:"06",name:"Product Grid",description:"Main content area right of the filter sidebar. Responsive grid of ProductCards. Default 4 columns. Skeleton state shown while fetching.",components:["ProductCard — product image (lazy load), 'New' badge (if created_at within 30 days), sale badge (e.g. '–20%'), wishlist heart button (top-right), quick-compare icon (bottom-right), product name, price, sale price + strikethrough if discounted, star rating + review count, 'Add to Cart' button","ProductCard states: in-stock normal / low-stock ('Only N left') / out-of-stock (greyed button)","SkeletonCard — animated grey placeholder shown during initial fetch","'Add to Cart' triggers auth check; visitors redirected to login"]},
+      {num:"07",name:"Pagination",description:"Below the product grid. Numbered page buttons with prev/next arrows. Generated from total_count ÷ page_size.",components:["Prev button — disabled on page 1","Page number buttons — 1, 2, 3, '…', last_page; current page highlighted","Next button — disabled on last page","Results summary — 'Showing products 1–24 of 248'"]}
+    ],
+    states:[
+      "Default (all products): heading = 'All Products', no pre-filters applied",
+      "Category context: heading = category name, category filter pre-applied and shown as chip",
+      "Search context: heading = 'Results for: [query]', full-text search applied",
+      "Flash Sales context: heading = 'Flash Sales', flash-sale filter pre-applied",
+      "No results: empty state illustration + 'No products match your filters' + 'Clear All Filters' CTA",
+      "Loading: skeleton cards shown in grid area; sidebar still visible with previous filter state",
+      "Out-of-stock items can appear (greyed) unless 'In Stock Only' toggle is active"
+    ],
+    dataRequirements:[
+      "GET /api/products?category=&minPrice=&maxPrice=&sizes=&colors=&rating=&inStock=&onSale=&sort=&page=&limit=",
+      "Returns: { products[], total_count, page, total_pages, facets{} }",
+      "Product fields: id, name, slug, images[0], price, sale_price, is_on_sale, avg_rating, review_count, stock_status, badges[]",
+      "GET /api/categories — sidebar category list with product counts",
+      "Facets (counts per filter option) ideally pre-computed alongside product results"
+    ],
+    designNotes:[
+      "URL must reflect all active filter state — supports sharing, deep-linking, browser back button",
+      "Sort change and filter change both reset pagination to page 1",
+      "Wishlist button requires auth; clicking triggers login redirect with return_to param",
+      "Compare button adds product to global comparison store (max 4); Compare bar appears at bottom of viewport when ≥2 items selected",
+      "Grid view is default; list view shows horizontal card with larger image on left"
+    ]
+  },
+  prod_detail:{
+    purpose:"The product-level conversion page. Presents all information needed for a purchase decision and provides the primary Add to Cart and Buy Now entry points.",
+    overview:"The Product Detail page is the most information-dense public page. It is split into a two-column upper section (image gallery left, purchase panel right) followed by full-width lower sections for descriptions, specifications, reviews, and related products. Variant selection controls which images display and which price/stock information is shown. Flash sale pricing and countdown timers are displayed inline when applicable. All purchase actions gate on authentication.",
+    sections:[
+      {num:"01",name:"Navigation Bar + Breadcrumb",description:"Standard global navigation bar, followed by a contextual breadcrumb showing the full category path to this product.",components:["NavigationBar — same as Homepage","Breadcrumb — e.g. Home › Women › Clothing › Classic Tailored Blazer"]},
+      {num:"02",name:"Product Image Gallery",description:"Left column of the two-column upper layout. Main image with hover-to-zoom, a scrollable row of up to 8 thumbnails. Selecting a different colour variant swaps the entire image set.",components:["MainImageViewer — large image (min 300px height), Zoom button (top-right, absolute)","Hover zoom — CSS transform scale or zoom overlay lens on desktop hover","ThumbnailStrip — horizontal row, max 8 thumbnails (52–60px); click changes main image; active thumbnail has highlighted border","Variant image swap — clicking a colour swatch swaps the entire gallery to that variant's images"]},
+      {num:"03",name:"Product Info Panel",description:"Right column. Contains all purchase-decision content: category tag, action icons, product name, rating row, stock status, price block with optional flash sale countdown, variant selectors, quantity stepper, and CTA buttons.",components:["Category tag — linked pill (e.g. 'Women / Clothing')","Action icons — heart/wishlist button + share/compare icon; top-right","Product name — H1, prominent","Rating row — star icons, avg rating number, review count (linked to reviews section), stock status pill (In Stock / Low Stock / Out of Stock)","Price block card — current price (large); if on sale: strikethrough original + badge (e.g. '–26%'); if flash sale: inner row with '⚡ Flash Sale ends in' + CountdownTimer","Colour variant selector — circular swatches; selected state has 2px border ring; label 'Select Colour'","Size variant selector — pill buttons; selected state highlighted; 'Size Guide' text link; 'Only N left in stock' if low","Quantity stepper — minus / input / plus; min 1, max available stock","'Add to Cart' primary button — full width; requires auth","'Buy Now' secondary button (dark fill) — full width; requires auth; skips to checkout","Trust row — '✓ Free shipping over ₦10,000 · ✓ Easy 30-day returns · ✓ Secure payments'"]},
+      {num:"04",name:"Product Description Tabs",description:"Full-width below the two-column upper. Three tabs: Description (admin rich HTML), Specifications (JSONB attributes table), Shipping & Returns (from Site Settings).",components:["TabBar — 'Description', 'Specifications', 'Shipping & Returns'","TabPanel: Description — rich HTML from admin product editor","TabPanel: Specifications — key-value table from variant JSONB attributes","TabPanel: Shipping & Returns — from admin page editor shipping policy content"]},
+      {num:"05",name:"Reviews Section",description:"Full-width below tabs. Left: rating summary card (aggregate score + bar chart breakdown). Right: sort tabs + individual review cards.",components:["RatingSummaryCard — overall score (large), star display, 'Based on N reviews', 5-star breakdown progress bars","Sort tabs — Most Recent, Most Helpful, Highest Rated, Lowest Rated","'Write a Review' button — only for buyers with a DELIVERED order for this product","ReviewCard × N — reviewer avatar, name, 'Verified Purchase' label, date, star rating, review body, 'Helpful (N)' button","'Helpful' button creates ReviewHelpful record; one vote per user per review","'Load more reviews' secondary button — fetches next page","Pending approval: buyer's own pending review shows 'Pending Approval' badge"]},
+      {num:"06",name:"Recently Viewed + Related Products",description:"Full-width bottom section. Recently viewed (last 20 for logged-in buyers / cookie-tracked for visitors) and related products (same category, by popularity).",components:["SectionHeader — 'You Recently Viewed'","Horizontal product strip × 5 — compact cards; horizontal scroll if more than 5","SectionHeader — 'You May Also Like'","ProductCard row × 4 — same card style as Product Listing grid"]}
+    ],
+    states:[
+      "Visitor: Add to Cart, Buy Now, Add to Wishlist, Write a Review all redirect to Login with return_to param",
+      "No active flash sale: Price block shows regular/sale price only — no countdown shown",
+      "Flash sale active: Price block shows flash sale price, countdown timer, original price",
+      "Selected variant out of stock: 'Out of Stock' greyed button; 'Notify Me When Back In Stock' link appears",
+      "Selected variant low stock: 'Only N left in stock' shown in size selector area",
+      "No size guide for category: 'Size Guide' link hidden from size selector",
+      "Buyer already reviewed: 'Write a Review' becomes 'Edit Your Review'",
+      "Review pending approval: buyer sees own review with 'Awaiting Approval' badge; not visible to others"
+    ],
+    dataRequirements:[
+      "GET /api/products/:slug — full product with all variants, images per variant, category path, avg_rating, review_count",
+      "GET /api/products/:id/reviews?sort=&page= — paginated review list with reviewer info",
+      "GET /api/flash-sales/active?variant_id= — check if selected variant is in active flash sale",
+      "GET /api/recently-viewed — last 20 products (auth: from DB; anon: from cookie)",
+      "GET /api/products/:id/related — same category products ordered by popularity",
+      "POST /api/cart — add item (auth required); returns updated cart count",
+      "POST /api/reviews/:id/helpful — mark review helpful (auth required)"
+    ],
+    designNotes:[
+      "Variant selection must update URL (e.g. ?variant=SKU123) to allow direct linking to a specific variant",
+      "Flash sale countdown uses the same CountdownTimer component as the Homepage Flash Sales section",
+      "Add to Cart should show inline success toast ('Added to cart!') — no page reload",
+      "Image gallery thumbnails should be drag-scrollable on touch devices",
+      "Reviews section lazy-loads — not included in the initial SSR/SSG payload to keep TTFB low",
+      "ReviewCard helpful vote is optimistic: increment client-side immediately, rollback on server error"
+    ]
+  },
+  cat_pg:{
+    purpose:"Category-specific landing page providing contextual browsing within a defined product category. Shows subcategory navigation cards followed by a filtered product grid.",
+    overview:"The Category Page is a specialised variant of the Product Listing page. It begins with a full-width hero banner for the category, followed by subcategory cards (visual entry points into sub-categories), then transitions into the standard filter sidebar + product grid layout pre-filtered to this category. Subcategory selection updates the pre-applied filter. The page is reached from the Homepage category grid, the navigation, or breadcrumb links.",
+    sections:[
+      {num:"01",name:"Navigation Bar + Breadcrumb",description:"Same global nav bar. Breadcrumb reflects category depth.",components:["NavigationBar — same as Homepage","Breadcrumb — e.g. Home › Women (or Home › Women › Clothing)"]},
+      {num:"02",name:"Category Hero Banner",description:"Full-width visual hero showing the category image with text overlay. Category name + product count displayed bottom-left over a dark gradient. Admin-managed via Category Management.",components:["HeroBanner — full width, height ~140px, background = category.image_url","Dark gradient overlay (bottom to top) — ensures text legibility on any image","Category name — H1, white text, bottom-left positioned","Product count + subcategory summary sub-label — e.g. '124 products · Clothing, Footwear, Accessories'"]},
+      {num:"03",name:"Subcategory Cards",description:"Horizontal row of visual cards, one per direct child category. Clicking a card applies that subcategory as a filter or navigates to that subcategory page. Hidden if no child categories exist.",components:["SectionHeader — 'Shop by Subcategory'","SubcategoryCard × N (up to 8 visible, scroll for more) — card with image thumbnail and name label","Active state — selected card has highlighted border + background","Horizontal scroll on mobile if > 4 subcategories"]},
+      {num:"04",name:"Filter Sidebar (subcategory-scoped)",description:"Same sidebar as Product Listing but the category filter section displays subcategories of the current parent instead of root categories.",components:["See Product Listing Section 05 for full component list","Subcategory checkboxes replace root category checkboxes","Pre-applied category chip already visible in the Active Filter Chips row"]},
+      {num:"05",name:"Product Grid (3-column) + Pagination",description:"3-column product grid (wider cards for category browsing) pre-filtered to this category. Supports all same filtering and sorting as Product Listing.",components:["See Product Listing Section 06 for full component list","Grid uses 3 columns instead of 4 — wider product images for category browsing context"]}
+    ],
+    states:[
+      "No subcategories: Subcategory Cards section hidden entirely",
+      "No category image: hero shows a generic gradient fallback background",
+      "Subcategory selected: chip added to filter chips row, grid re-filters, URL updates",
+      "All products in category out of stock: empty state with 'Check back soon' message",
+      "Page reached via direct URL: same pre-filter applied — fully URL-shareable"
+    ],
+    dataRequirements:[
+      "GET /api/categories/:slug — category record with name, image_url, description, parent info",
+      "GET /api/categories/:id/children — direct child subcategories",
+      "GET /api/products?category_id=&[filters] — product list pre-filtered to this category"
+    ],
+    designNotes:[
+      "Category Page is effectively a Product Listing page with a pre-set context — single component with a 'context' prop avoids duplication",
+      "Hero image must have dark gradient overlay — text must be legible regardless of image brightness",
+      "Subcategory cards scroll horizontally on mobile if > 4",
+      "The active category chip in the filter chips row can be dismissed (reverts to all products, then redirects to /products)"
+    ]
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME DESIGN TOKENS
+// ══════════════════════════════════════════════════════════════════════════════
+const T = {
+  bg0:"#FFFFFF",bg1:"#F9FAFB",bg2:"#F3F4F6",bg3:"#E5E7EB",
+  text0:"#111827",text1:"#374151",text2:"#6B7280",text3:"#9CA3AF",
+  border0:"#D1D5DB",border1:"#E5E7EB",border2:"#F3F4F6",
+  blue:"#1D4ED8",blueLight:"#EFF6FF",blueBorder:"#BFDBFE",blueText:"#1E40AF",
+  red:"#B91C1C",redLight:"#FEF2F2",green:"#15803D",greenLight:"#F0FDF4",
+  yellow:"#B45309",
+  font:"'DM Sans','Segoe UI',system-ui,sans-serif",
+  mono:"'JetBrains Mono',monospace",
+  r:{sm:4,md:6,lg:10,full:999},
+};
+
+// ── Shared wireframe sub-components ──────────────────────────────────────────
+function WfSection({num,label,children,bg=T.bg0}){
+  return(
+    <div style={{borderBottom:`1px solid ${T.border1}`,background:bg}}>
+      <div style={{fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,background:T.bg2,
+        padding:"4px 20px",borderBottom:`1px solid ${T.border2}`,fontWeight:600,fontFamily:T.mono,
+        display:"flex",alignItems:"center",gap:8}}>
+        <span style={{color:T.blueText,fontWeight:700}}>{num}</span>
+        <span>—</span><span>{label}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function WfImg({height=120,label="",style={}}){
+  return(
+    <div style={{background:T.bg3,height,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",gap:4,position:"relative",overflow:"hidden",...style}}>
+      <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.25}} preserveAspectRatio="none">
+        <line x1="0" y1="0" x2="100%" y2="100%" stroke={T.text3} strokeWidth="1"/>
+        <line x1="100%" y1="0" x2="0" y2="100%" stroke={T.text3} strokeWidth="1"/>
+      </svg>
+      <div style={{fontSize:16,zIndex:1}}>🖼</div>
+      {label&&<div style={{fontSize:9,color:T.text3,letterSpacing:"0.06em",zIndex:1,textTransform:"uppercase"}}>{label}</div>}
+    </div>
+  );
+}
+
+function WfLine({w="100%",h=8,mb=4,opacity=1}){
+  return <div style={{height:h,background:T.border0,borderRadius:99,marginBottom:mb,width:w,opacity}}/>;
+}
+
+function WfAnnot({children}){
+  return(
+    <div style={{fontSize:10,color:T.text3,borderLeft:`2px solid ${T.border0}`,
+      paddingLeft:8,margin:"4px 20px 8px",fontStyle:"italic",lineHeight:1.6}}>
+      {children}
+    </div>
+  );
+}
+
+function WfBtn({children,primary=false,style={}}){
+  return(
+    <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+      background:primary?T.blue:"transparent",color:primary?"#fff":T.text1,
+      border:primary?"none":`1px solid ${T.border0}`,borderRadius:T.r.md,
+      padding:"7px 16px",fontSize:11,fontWeight:primary?500:400,
+      cursor:"pointer",fontFamily:T.font,...style}}>
+      {children}
+    </div>
+  );
+}
+
+function WfTag({children,active=false}){
+  return(
+    <div style={{display:"inline-flex",alignItems:"center",
+      background:active?T.blueLight:T.bg2,color:active?T.blueText:T.text2,
+      border:`1px solid ${active?T.blueBorder:T.border1}`,
+      borderRadius:T.r.full,padding:"3px 10px",fontSize:10}}>
+      {children}
+    </div>
+  );
+}
+
+function WfNav(){
+  return(
+    <div style={{display:"flex",alignItems:"center",padding:"10px 24px",gap:20,
+      background:T.bg0,borderBottom:`1px solid ${T.border1}`,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,minWidth:90,letterSpacing:-0.5}}>WillOfGod</div>
+      <div style={{display:"flex",gap:22,flex:1,justifyContent:"center"}}>
+        {["Home","Shop","Flash Sales","Categories","New Arrivals"].map((t,i)=>(
+          <span key={t} style={{fontSize:11,color:i===0?T.blueText:T.text2,fontWeight:i===0?600:400}}>{t}</span>
+        ))}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,
+          padding:"5px 12px",fontSize:10,color:T.text3,width:160}}>🔍 Search products…</div>
+        <span style={{fontSize:16,color:T.text2,cursor:"pointer"}}>♡</span>
+        <div style={{position:"relative"}}>
+          <div style={{width:28,height:28,border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:T.text2}}>🛍</div>
+          <div style={{position:"absolute",top:-5,right:-5,width:16,height:16,
+            background:T.red,color:"#fff",borderRadius:"50%",fontSize:8,fontWeight:700,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+        </div>
+        <div style={{width:28,height:28,borderRadius:"50%",background:T.blueLight,
+          border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",
+          justifyContent:"center",fontSize:10,color:T.blueText,fontWeight:700}}>AB</div>
+      </div>
+    </div>
+  );
+}
+
+function WfProductCard({badge=null,flash=false,size="md"}){
+  const imgH=size==="sm"?90:122;
+  return(
+    <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+      <div style={{position:"relative"}}>
+        <WfImg height={imgH}/>
+        {badge==="sale"&&<div style={{position:"absolute",top:7,left:7,background:T.redLight,color:T.red,
+          borderRadius:T.r.sm,padding:"2px 6px",fontSize:9,fontWeight:700}}>–20%</div>}
+        {badge==="new"&&<div style={{position:"absolute",top:7,left:7,background:T.greenLight,color:T.green,
+          borderRadius:T.r.sm,padding:"2px 6px",fontSize:9,fontWeight:700}}>New</div>}
+        <div style={{position:"absolute",top:7,right:7,width:22,height:22,background:T.bg0,
+          border:`1px solid ${T.border0}`,borderRadius:"50%",display:"flex",
+          alignItems:"center",justifyContent:"center",fontSize:11,color:T.text3}}>♡</div>
+      </div>
+      <div style={{padding:10}}>
+        <WfLine w="75%" h={10} mb={3}/>
+        <WfLine w="50%" h={7} mb={6}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:5}}>
+            <WfLine w={50} h={10} mb={0}/>
+            {badge==="sale"&&<WfLine w={35} h={7} mb={0} opacity={0.4}/>}
+          </div>
+          <div style={{fontSize:10,color:T.yellow,letterSpacing:1}}>★★★★</div>
+        </div>
+        {flash&&<div style={{fontSize:9,color:T.red,fontWeight:500,marginBottom:6}}>⚡ Sale ends 01:45:22</div>}
+        <WfBtn primary style={{width:"100%",fontSize:10,padding:"6px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: HOMEPAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeHomepage(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="01" label="Top Navigation Bar"><WfNav/>
+        <WfAnnot>Logo · Nav links · Search bar with live autocomplete · Wishlist icon · Cart with item badge · User avatar / Login + Register CTAs</WfAnnot>
+      </WfSection>
+
+      <WfSection num="02" label="Hero Banner Slider (Admin-managed · auto-rotates · multiple slides)">
+        <div style={{position:"relative",height:230,overflow:"hidden",background:T.bg3}}>
+          <div style={{position:"absolute",inset:0,display:"grid",gridTemplateColumns:"55% 45%"}}>
+            <div style={{display:"flex",flexDirection:"column",justifyContent:"center",padding:"32px 40px",gap:10}}>
+              <WfTag>New Collection</WfTag>
+              <div style={{fontSize:26,fontWeight:700,color:T.text0,lineHeight:1.25,maxWidth:300}}>Elevate Your Everyday Look</div>
+              <WfLine w={200} h={7} mb={0} opacity={0.5}/>
+              <WfLine w={170} h={7} mb={10} opacity={0.4}/>
+              <div style={{display:"flex",gap:10}}><WfBtn primary>Shop Now</WfBtn><WfBtn>Explore Sales</WfBtn></div>
+            </div>
+            <WfImg height={230} label="Banner Image" style={{borderRadius:0}}/>
+          </div>
+          {[{s:"left",sym:"‹"},{s:"right",sym:"›"}].map(({s,sym})=>(
+            <div key={s} style={{position:"absolute",[s]:10,top:"50%",transform:"translateY(-50%)",
+              width:28,height:28,background:"rgba(255,255,255,0.88)",borderRadius:"50%",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:14,color:T.text1,border:`1px solid ${T.border0}`,cursor:"pointer"}}>{sym}</div>
+          ))}
+          <div style={{position:"absolute",bottom:12,left:"50%",transform:"translateX(-50%)",display:"flex",gap:5}}>
+            <div style={{width:22,height:4,background:T.text0,borderRadius:99,opacity:0.7}}/>
+            <div style={{width:6,height:4,background:T.border0,borderRadius:99}}/>
+            <div style={{width:6,height:4,background:T.border0,borderRadius:99}}/>
+          </div>
+        </div>
+        <WfAnnot>Auto-rotates every 5 s · Pauses on hover (WCAG) · Admin sets: image, headline, subtitle, CTA label, CTA destination</WfAnnot>
+      </WfSection>
+
+      <WfSection num="03" label="Trust Badges Row">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",background:T.bg0}}>
+          {[["🚚","Free Shipping","On orders over ₦10,000"],["🛡️","Warranty Guaranteed","All products covered"],["🔄","Easy Returns","30-day hassle-free"],["🎧","24/7 Support","Always here for you"]].map(([ic,t,s],i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 20px",
+              borderRight:i<3?`1px solid ${T.border2}`:"none"}}>
+              <div style={{fontSize:22}}>{ic}</div>
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:2}}>{t}</div>
+                <div style={{fontSize:10,color:T.text2}}>{s}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>Static content · 4 trust signals · Collapses to 2×2 on mobile</WfAnnot>
+      </WfSection>
+
+      <WfSection num="04" label="Category Grid — Shop by Category">
+        <div style={{padding:"20px 24px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:17,fontWeight:700,color:T.text0}}>Shop by Category</div>
+              <div style={{fontSize:11,color:T.text2,marginTop:2}}>Browse all our collections</div>
+            </div>
+            <WfBtn>View All →</WfBtn>
+          </div>
+          {[0,1].map(row=>(
+            <div key={row} style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:row===0?12:0}}>
+              {["Women","Men","Kids","Electronics","Accessories"].map((cat,i)=>(
+                <div key={i} style={{textAlign:"center",cursor:"pointer"}}>
+                  <WfImg height={76} style={{borderRadius:T.r.lg,marginBottom:7}}/>
+                  <div style={{fontSize:11,color:T.text1,fontWeight:500}}>{cat}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <WfAnnot>Dynamic · ordered by admin sort_order · Section hidden if no active categories</WfAnnot>
+      </WfSection>
+
+      <WfSection num="05" label="New Arrivals Section">
+        <div style={{padding:"20px 24px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:17,fontWeight:700,color:T.text0}}>New Arrivals</div>
+            <div style={{display:"flex",gap:6}}>
+              {["All","Men","Women","Kids","Accessories"].map((t,i)=><WfTag key={t} active={i===0}>{t}</WfTag>)}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+            {[null,"new","new",null].map((b,i)=><WfProductCard key={i} badge={b}/>)}
+          </div>
+        </div>
+        <WfAnnot>Sorted by created_at DESC · Tab filter changes category scope · Skeleton cards shown on load</WfAnnot>
+      </WfSection>
+
+      <WfSection num="06" label="About Us Snippet">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:T.bg2}}>
+          <div style={{padding:"32px 40px",display:"flex",flexDirection:"column",justifyContent:"center",gap:10}}>
+            <div style={{fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,fontWeight:600}}>About Us</div>
+            <div style={{fontSize:20,fontWeight:700,color:T.text0,lineHeight:1.3}}>Designed for your everyday confidence</div>
+            <WfLine w="100%" mb={3}/><WfLine w="90%" mb={3}/><WfLine w="80%" mb={14}/>
+            <WfBtn primary style={{alignSelf:"flex-start"}}>Explore Our Story →</WfBtn>
+          </div>
+          <WfImg height={200} label="About Image" style={{borderRadius:0}}/>
+        </div>
+        <WfAnnot>Content pulled from same Page Editor record as /about · Zero admin duplication</WfAnnot>
+      </WfSection>
+
+      <WfSection num="07" label="Flash Sales Section (entirely hidden when no active sales)">
+        <div style={{padding:"20px 24px",background:T.bg1}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:17,fontWeight:700,color:T.text0,marginBottom:6}}>Flash Sales</div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,color:T.text2}}>Ends in:</span>
+                {["02","14","37","09"].map((t,i)=>(
+                  <span key={i} style={{display:"inline-flex"}}>
+                    <span style={{background:T.text0,color:T.bg0,borderRadius:T.r.sm,padding:"2px 7px",fontSize:12,fontWeight:600,fontFamily:T.mono}}>{t}</span>
+                    {i<3&&<span style={{margin:"0 2px",color:T.text2,fontSize:12}}>:</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <WfBtn>View All Flash Sales →</WfBtn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+            {["sale","sale","sale","sale"].map((b,i)=><WfProductCard key={i} badge={b} flash={true}/>)}
+          </div>
+        </div>
+        <WfAnnot>CountdownTimer counts to earliest active flash sale end_time · Progress bar shows % sold · Hidden when NOW() is outside all flash sale windows</WfAnnot>
+      </WfSection>
+
+      <WfSection num="08" label="Customer Testimonials (Top 6 by helpfulness)">
+        <div style={{padding:"20px 24px"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text0,textAlign:"center",marginBottom:18}}>What Our Clients Say</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14}}>
+            {[1,2,3].map(i=>(
+              <div key={i} style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:16}}>
+                <div style={{fontSize:13,color:T.yellow,marginBottom:8,letterSpacing:2}}>★★★★★</div>
+                <WfLine mb={4}/><WfLine w="88%" mb={4}/><WfLine w="72%" mb={14}/>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:T.bg3,border:`1px solid ${T.border0}`,flexShrink:0}}/>
+                  <div><WfLine w={70} h={9} mb={3}/><WfLine w={50} h={7} mb={0} opacity={0.6}/></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"center",gap:6,marginTop:14}}>
+            <div style={{width:24,height:4,background:T.text0,borderRadius:99,opacity:0.7}}/>
+            <div style={{width:6,height:4,background:T.border0,borderRadius:99}}/>
+          </div>
+        </div>
+        <WfAnnot>Auto-fetched: top 6 approved reviews · Verified Purchase label on each card · 2 pages of 3 cards</WfAnnot>
+      </WfSection>
+
+      <WfSection num="09" label="FAQ Accordion Snippet (first 4 items)">
+        <div style={{padding:"20px 24px"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text0,textAlign:"center",marginBottom:16}}>Frequently Asked Questions</div>
+          {["How long does delivery take?","What payment methods do you accept?","Can I track my order?","Do you ship internationally?"].map((q,i)=>(
+            <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.md,marginBottom:6,overflow:"hidden"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"11px 16px",background:i===0?T.bg2:T.bg0,cursor:"pointer"}}>
+                <span style={{fontSize:12,color:T.text0,fontWeight:i===0?500:400}}>{q}</span>
+                <span style={{fontSize:16,color:T.text3}}>{i===0?"−":"+"}</span>
+              </div>
+              {i===0&&(
+                <div style={{padding:"10px 16px",borderTop:`1px solid ${T.border1}`}}>
+                  <WfLine w="92%" mb={4}/><WfLine w="70%" mb={0}/>
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{textAlign:"center",marginTop:12}}>
+            <span style={{fontSize:11,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>View All FAQs →</span>
+          </div>
+        </div>
+        <WfAnnot>First 4 from DB ordered by sort_order · First item pre-expanded · Admin-managed via FAQ Management</WfAnnot>
+      </WfSection>
+
+      <WfSection num="10" label="Newsletter Subscription">
+        <div style={{padding:"28px 24px",background:T.bg2,textAlign:"center"}}>
+          <div style={{fontSize:17,fontWeight:700,color:T.text0,marginBottom:4}}>Subscribe to our Newsletter</div>
+          <div style={{fontSize:12,color:T.text2,marginBottom:16}}>Get updates on new arrivals and exclusive flash sales</div>
+          <div style={{display:"flex",gap:8,maxWidth:400,margin:"0 auto 10px"}}>
+            <input readOnly placeholder="Enter your email address" style={{flex:1,padding:"9px 14px",
+              border:`1px solid ${T.border0}`,borderRadius:T.r.md,fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+            <WfBtn primary>Subscribe</WfBtn>
+          </div>
+          <div style={{fontSize:10,color:T.text3}}>Available to signed-up buyers only · Unsubscribe anytime</div>
+        </div>
+        <WfAnnot>Only captures existing buyer emails · Auto-triggers newsletter on new product OR flash sale creation</WfAnnot>
+      </WfSection>
+
+      <WfSection num="11" label="Footer">
+        <div style={{padding:"28px 24px 14px",background:T.bg0}}>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:28,marginBottom:22}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:700,color:T.text0,marginBottom:10}}>WillOfGod</div>
+              <WfLine mb={4}/><WfLine w="85%" mb={4}/><WfLine w="70%" mb={14}/>
+              <div style={{display:"flex",gap:8}}>
+                {["📸","📘","🐦","▶️"].map((ic,i)=>(
+                  <div key={i} style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${T.border0}`,
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,cursor:"pointer"}}>{ic}</div>
+                ))}
+              </div>
+            </div>
+            {[["Help","Contact Us","FAQ","Shipping Policy","Returns"],
+              ["Company","About Us","Careers","Privacy Policy","Terms"],
+              ["Categories","Women","Men","Kids","Electronics"]].map((col,ci)=>(
+              <div key={ci}>
+                <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:10}}>{col[0]}</div>
+                {col.slice(1).map(l=><div key={l} style={{fontSize:11,color:T.text2,marginBottom:6,cursor:"pointer"}}>{l}</div>)}
+              </div>
+            ))}
+          </div>
+          <div style={{borderTop:`1px solid ${T.border2}`,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:11,color:T.text3}}>© 2026 WillOfGod. All rights reserved.</div>
+            <div style={{display:"flex",gap:6}}>{["Stripe","PayPal","Paystack"].map(p=><WfTag key={p}>{p}</WfTag>)}</div>
+          </div>
+        </div>
+      </WfSection>
+
+      <WfSection num="12" label="Floating Live Chat Widget (fixed bottom-right — every page)">
+        <div style={{padding:"16px 24px",display:"flex",alignItems:"center",gap:16}}>
+          <div style={{position:"relative"}}>
+            <div style={{width:48,height:48,borderRadius:"50%",background:T.blue,display:"flex",
+              alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff",
+              boxShadow:"0 4px 14px rgba(29,78,216,0.35)",cursor:"pointer"}}>💬</div>
+            <div style={{position:"absolute",top:0,right:0,width:14,height:14,background:T.red,
+              borderRadius:"50%",border:`2px solid ${T.bg0}`,fontSize:7,fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}>1</div>
+          </div>
+          <div style={{fontSize:11,color:T.text2,lineHeight:1.6}}>
+            Fixed position · Bottom-right · Opens sliding chat panel on click · Supports anonymous visitors (session cookie) and authenticated buyers (account-linked) · Red badge when admin has sent unread messages
+          </div>
+        </div>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: PRODUCT LISTING
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeProductListing(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="01" label="Top Navigation Bar"><WfNav/></WfSection>
+
+      <WfSection num="02" label="Breadcrumb Bar">
+        <div style={{padding:"8px 24px",fontSize:11,color:T.text2,background:T.bg2,display:"flex",gap:6,alignItems:"center"}}>
+          {["Home","›","Shop","›","All Products"].map((s,i)=>(
+            <span key={i} style={{color:i===4?T.text0:s==="›"?T.text3:T.blueText,fontWeight:i===4?500:400}}>{s}</span>
+          ))}
+        </div>
+      </WfSection>
+
+      <WfSection num="03" label="Page Header + Results Count + Sort + View Toggle">
+        <div style={{padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.bg0}}>
+          <div>
+            <div style={{fontSize:20,fontWeight:700,color:T.text0}}>All Products</div>
+            <div style={{fontSize:11,color:T.text3,marginTop:2}}>248 products found</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:11,color:T.text2}}>Sort by:</span>
+              <select style={{fontSize:11,padding:"5px 10px",border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,background:T.bg0,fontFamily:T.font}}>
+                <option>Newest First</option>
+              </select>
+            </div>
+            <div style={{display:"flex",gap:4}}>
+              {[{ic:"⊞",act:true},{ic:"≡",act:false}].map(({ic,act})=>(
+                <div key={ic} style={{width:28,height:28,borderRadius:T.r.sm,
+                  background:act?T.blueLight:T.bg2,border:`1px solid ${act?T.blueBorder:T.border1}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:14,color:act?T.blueText:T.text2,cursor:"pointer"}}>{ic}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </WfSection>
+
+      <WfSection num="04" label="Active Filter Chips">
+        <div style={{padding:"8px 24px",display:"flex",gap:7,alignItems:"center",background:T.bg0,flexWrap:"wrap",borderBottom:`1px solid ${T.border2}`}}>
+          <span style={{fontSize:11,color:T.text3}}>Active filters:</span>
+          {["Women","₦5,000 – ₦25,000","In Stock"].map(f=>(
+            <div key={f} style={{display:"flex",alignItems:"center",gap:4,background:T.blueLight,
+              border:`1px solid ${T.blueBorder}`,borderRadius:T.r.full,padding:"3px 10px"}}>
+              <span style={{fontSize:10,color:T.blueText}}>{f}</span>
+              <span style={{fontSize:12,color:T.blueText,cursor:"pointer"}}>×</span>
+            </div>
+          ))}
+          <WfBtn style={{fontSize:10,padding:"3px 10px"}}>Clear All</WfBtn>
+        </div>
+      </WfSection>
+
+      <WfSection num="05+06" label="Filter Sidebar (200px) + Product Grid (4-col)">
+        <div style={{display:"grid",gridTemplateColumns:"200px 1fr"}}>
+          {/* SIDEBAR */}
+          <div style={{borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg0}}>
+            {/* Categories */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+                Categories <span style={{fontWeight:400,fontSize:10,color:T.text3}}>▾</span>
+              </div>
+              {[["Clothing",124,true],["Electronics",48,true],["Footwear",32,false],["Accessories",44,false]].map(([c,n,chk])=>(
+                <label key={c} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                  <input type="checkbox" defaultChecked={chk} readOnly style={{width:12,height:12}}/>
+                  <span style={{fontSize:10,color:T.text1}}>{c} ({n})</span>
+                </label>
+              ))}
+              <span style={{fontSize:10,color:T.blueText,cursor:"pointer"}}>+ Show more</span>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            {/* Price */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Price Range</div>
+              <input type="range" min={0} max={100} defaultValue={60} style={{width:"100%",marginBottom:6}}/>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                {["₦0","₦50,000"].map(v=>(
+                  <div key={v} style={{background:T.bg2,border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"3px 8px",fontSize:10,color:T.text2}}>{v}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            {/* Size */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Size</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {["XS","S","M","L","XL","XXL"].map((s,i)=>(
+                  <div key={s} style={{padding:"3px 8px",border:`1px solid ${i===2?T.blueBorder:T.border0}`,
+                    background:i===2?T.blueLight:"transparent",borderRadius:T.r.sm,
+                    fontSize:10,color:i===2?T.blueText:T.text1,cursor:"pointer"}}>{s}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            {/* Colour */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Colour</div>
+              <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                {[["#1a1a18",false],["#8B1919",false],["#0C3C6E",true],["#2B5A0E",false],["#4A2804",false],["#888480",false]].map(([c,act],i)=>(
+                  <div key={i} style={{width:20,height:20,borderRadius:"50%",background:c,
+                    border:act?`2.5px solid ${T.text0}`:`1px solid ${T.border0}`,cursor:"pointer"}}/>
+                ))}
+              </div>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            {/* Rating */}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Star Rating</div>
+              {[[5,42],[4,87],[3,63]].map(([r,n])=>(
+                <label key={r} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,cursor:"pointer"}}>
+                  <input type="checkbox" readOnly style={{width:12,height:12}}/>
+                  <span style={{fontSize:11,color:T.yellow}}>{"★".repeat(r)}{"☆".repeat(5-r)}</span>
+                  <span style={{fontSize:10,color:T.text3}}>({n})</span>
+                </label>
+              ))}
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:11,color:T.text0}}>In Stock Only</span>
+              <div style={{width:34,height:18,background:T.blue,borderRadius:99,position:"relative"}}>
+                <div style={{position:"absolute",right:2,top:2,width:14,height:14,background:"#fff",borderRadius:"50%"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:T.text0}}>On Sale Only</span>
+              <div style={{width:34,height:18,background:T.bg3,border:`1px solid ${T.border0}`,borderRadius:99,position:"relative"}}>
+                <div style={{position:"absolute",left:2,top:2,width:14,height:14,background:T.border0,borderRadius:"50%"}}/>
+              </div>
+            </div>
+          </div>
+          {/* GRID */}
+          <div style={{padding:16,background:T.bg1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:11,color:T.text2}}>Showing <strong style={{color:T.text0}}>24</strong> of 62 products</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+              {[null,"sale","new",null,"new",null,"sale",null].map((b,i)=><WfProductCard key={i} badge={b} size="sm"/>)}
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Filter changes update URL query string · All filter state deep-linkable · 'Add to Cart' requires auth · Compare bar appears at bottom when ≥2 products selected</WfAnnot>
+      </WfSection>
+
+      <WfSection num="07" label="Pagination">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 24px",background:T.bg0}}>
+          <div style={{fontSize:11,color:T.text3}}>Showing products 1–24 of 248</div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <WfBtn style={{fontSize:10,padding:"5px 12px"}}>‹ Prev</WfBtn>
+            {[1,2,3,"…",12].map((p,i)=>(
+              <div key={i} style={{width:28,height:28,borderRadius:T.r.md,
+                background:i===0?T.blueLight:"transparent",border:`1px solid ${i===0?T.blueBorder:T.border1}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:11,color:i===0?T.blueText:T.text2,cursor:"pointer"}}>{p}</div>
+            ))}
+            <WfBtn style={{fontSize:10,padding:"5px 12px"}}>Next ›</WfBtn>
+          </div>
+        </div>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: PRODUCT DETAIL
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeProductDetail(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="01" label="Top Navigation Bar + Breadcrumb">
+        <WfNav/>
+        <div style={{padding:"8px 24px",fontSize:11,background:T.bg2,display:"flex",gap:6}}>
+          {["Home","›","Women","›","Clothing","›","Classic Tailored Blazer"].map((s,i)=>(
+            <span key={i} style={{color:i===6?T.text0:s==="›"?T.text3:T.blueText,fontWeight:i===6?500:400}}>{s}</span>
+          ))}
+        </div>
+      </WfSection>
+
+      <WfSection num="02+03" label="Image Gallery (left column) + Product Info Panel (right column)">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",background:T.bg0}}>
+          {/* Gallery */}
+          <div style={{padding:20,borderRight:`1px solid ${T.border1}`}}>
+            <div style={{fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,marginBottom:12,fontWeight:600,fontFamily:T.mono}}>02 — Image Gallery</div>
+            <div style={{position:"relative",marginBottom:10}}>
+              <WfImg height={285} label="Main Product Image" style={{borderRadius:T.r.lg}}/>
+              <div style={{position:"absolute",top:10,right:10,background:"rgba(255,255,255,0.92)",
+                border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"4px 10px",
+                fontSize:10,color:T.text2}}>⊕ Zoom</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7}}>
+              {[0,1,2,3,4].map(i=>(
+                <WfImg key={i} height={56} style={{borderRadius:T.r.md,
+                  border:i===0?`2px solid ${T.blue}`:`1px solid ${T.border1}`}}/>
+              ))}
+            </div>
+            <WfAnnot>Variant-specific images · Click thumbnail → changes main image · Hover to zoom · Max 8 per variant</WfAnnot>
+          </div>
+          {/* Info */}
+          <div style={{padding:20}}>
+            <div style={{fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,marginBottom:14,fontWeight:600,fontFamily:T.mono}}>03 — Product Info Panel</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <WfTag>Women / Clothing</WfTag>
+              <div style={{display:"flex",gap:7}}>
+                {["♡","⊕"].map(ic=>(
+                  <div key={ic} style={{width:30,height:30,borderRadius:"50%",border:`1px solid ${T.border0}`,
+                    display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:T.text2,cursor:"pointer"}}>{ic}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:8,lineHeight:1.25}}>Classic Tailored Blazer</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <span style={{fontSize:13,color:T.yellow,letterSpacing:1}}>★★★★☆</span>
+              <span style={{fontSize:11,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>42 reviews</span>
+              <span style={{fontSize:11,color:T.green,fontWeight:500}}>● In Stock</span>
+            </div>
+            {/* Price block */}
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,padding:14,marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:10}}>
+                <span style={{fontSize:26,fontWeight:700,color:T.text0}}>₦18,500</span>
+                <span style={{fontSize:15,color:T.text3,textDecoration:"line-through"}}>₦25,000</span>
+                <div style={{background:T.redLight,color:T.red,borderRadius:T.r.sm,padding:"2px 8px",fontSize:11,fontWeight:700}}>–26%</div>
+              </div>
+              <div style={{paddingTop:10,borderTop:`1px solid ${T.border1}`,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,color:T.red,fontWeight:600}}>⚡ Flash Sale ends in:</span>
+                <div style={{display:"flex",gap:3}}>
+                  {["01","45","22"].map((t,i)=>(
+                    <span key={i} style={{display:"inline-flex"}}>
+                      <span style={{background:T.red,color:"#fff",borderRadius:T.r.sm,padding:"1px 6px",fontSize:11,fontFamily:T.mono,fontWeight:600}}>{t}</span>
+                      {i<2&&<span style={{color:T.red,fontSize:12,margin:"0 1px"}}>:</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Colour */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:8}}>Select Colour</div>
+              <div style={{display:"flex",gap:8}}>
+                {[["#1a1a18",true],["#0C3C6E",false],["#8B1919",false],["#888480",false]].map(([c,act],i)=>(
+                  <div key={i} style={{width:26,height:26,borderRadius:"50%",background:c,
+                    border:act?`2.5px solid ${T.text0}`:`1px solid ${T.border0}`,cursor:"pointer"}}/>
+                ))}
+              </div>
+            </div>
+            {/* Size */}
+            <div style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Select Size</div>
+                <span style={{fontSize:11,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Size Guide</span>
+              </div>
+              <div style={{display:"flex",gap:7,marginBottom:6}}>
+                {["XS","S","M","L","XL"].map((s,i)=>(
+                  <div key={s} style={{padding:"6px 12px",border:`1px solid ${i===2?T.blueBorder:T.border0}`,
+                    background:i===2?T.blueLight:"transparent",borderRadius:T.r.md,
+                    fontSize:12,color:i===2?T.blueText:T.text1,cursor:"pointer"}}>{s}</div>
+                ))}
+              </div>
+              <div style={{fontSize:10,color:T.red}}>Only 3 left in stock</div>
+            </div>
+            {/* Qty */}
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+              <span style={{fontSize:12,fontWeight:600,color:T.text0}}>Qty:</span>
+              <div style={{display:"flex",alignItems:"center",border:`1px solid ${T.border0}`,borderRadius:T.r.md,overflow:"hidden"}}>
+                {["−","1","+"].map((v,i)=>(
+                  <div key={i} style={{width:i===1?42:32,height:34,background:i===1?T.bg0:T.bg2,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:i===1?13:18,color:T.text1,
+                    borderLeft:i>0?`1px solid ${T.border0}`:"none",cursor:i!==1?"pointer":"default"}}>{v}</div>
+                ))}
+              </div>
+            </div>
+            {/* CTAs */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <WfBtn primary style={{padding:"12px 0",fontSize:13,justifyContent:"center"}}>Add to Cart</WfBtn>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+                background:T.text0,color:T.bg0,borderRadius:T.r.md,
+                padding:"12px 0",fontSize:13,fontWeight:500,cursor:"pointer"}}>Buy Now</div>
+            </div>
+            <WfAnnot>Add to Cart & Buy Now both require login · Visitors redirected to login with return_to param</WfAnnot>
+            <div style={{display:"flex",gap:14,paddingTop:12,borderTop:`1px solid ${T.border2}`,flexWrap:"wrap"}}>
+              {["🚚 Free shipping over ₦10,000","🔄 Easy 30-day returns","🔒 Secure payments"].map(f=>(
+                <div key={f} style={{fontSize:10,color:T.text3}}>{f}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </WfSection>
+
+      <WfSection num="04" label="Product Description + Specification Tabs">
+        <div style={{background:T.bg0,padding:"0 24px"}}>
+          <div style={{display:"flex",borderBottom:`1px solid ${T.border1}`}}>
+            {["Description","Specifications","Shipping & Returns"].map((t,i)=>(
+              <div key={t} style={{padding:"11px 20px",fontSize:12,cursor:"pointer",
+                color:i===0?T.text0:T.text3,
+                borderBottom:i===0?`2.5px solid ${T.text0}`:"2px solid transparent",
+                fontWeight:i===0?600:400}}>{t}</div>
+            ))}
+          </div>
+          <div style={{padding:"16px 0"}}>
+            {[100,95,90,88,75,60].map((w,i)=><WfLine key={i} w={`${w}%`} mb={5}/>)}
+          </div>
+        </div>
+        <WfAnnot>Description: rich HTML from admin editor · Specifications: JSONB attributes as key-value table · Shipping & Returns: from Page Editor policy content</WfAnnot>
+      </WfSection>
+
+      <WfSection num="05" label="Reviews Section">
+        <div style={{padding:"20px 24px",background:T.bg0}}>
+          <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:20}}>
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:18,textAlign:"center"}}>
+              <div style={{fontSize:40,fontWeight:700,color:T.text0,lineHeight:1}}>4.2</div>
+              <div style={{fontSize:16,color:T.yellow,margin:"6px 0 4px",letterSpacing:2}}>★★★★☆</div>
+              <div style={{fontSize:11,color:T.text3,marginBottom:14}}>Based on 42 reviews</div>
+              {[5,4,3,2,1].map(r=>(
+                <div key={r} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <span style={{fontSize:10,color:T.text3,minWidth:8}}>{r}</span>
+                  <div style={{flex:1,height:5,background:T.bg3,borderRadius:99}}>
+                    <div style={{height:"100%",width:`${[70,50,20,10,5][5-r]}%`,background:T.yellow,borderRadius:99}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{display:"flex",gap:6}}>
+                  {["Most Recent","Most Helpful","Highest","Lowest"].map((s,i)=><WfTag key={s} active={i===0}>{s}</WfTag>)}
+                </div>
+                <WfBtn primary style={{fontSize:11}}>Write a Review</WfBtn>
+              </div>
+              {[1,2].map(i=>(
+                <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:32,height:32,borderRadius:"50%",background:T.bg3,border:`1px solid ${T.border0}`}}/>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Buyer Name</div>
+                        <div style={{fontSize:10,color:T.text3}}>Verified Purchase · 2 days ago</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:13,color:T.yellow,letterSpacing:1}}>★★★★★</div>
+                  </div>
+                  <WfLine mb={4}/><WfLine w="76%" mb={10}/>
+                  <WfBtn style={{fontSize:10,padding:"3px 10px"}}>👍 Helpful (7)</WfBtn>
+                </div>
+              ))}
+              <WfBtn style={{width:"100%",justifyContent:"center",fontSize:11}}>Load more reviews</WfBtn>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>'Write a Review' only for buyers with DELIVERED order for this product · One helpful vote per user per review</WfAnnot>
+      </WfSection>
+
+      <WfSection num="06" label="Recently Viewed + Related Products">
+        <div style={{padding:"16px 24px",background:T.bg2}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:12}}>You Recently Viewed</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20}}>
+            {[1,2,3,4,5].map(i=>(
+              <div key={i}><WfImg height={82} style={{borderRadius:T.r.md,marginBottom:6}}/><WfLine w="80%" h={7} mb={0}/></div>
+            ))}
+          </div>
+          <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:12}}>You May Also Like</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+            {[null,"sale","new",null].map((b,i)=><WfProductCard key={i} badge={b} size="sm"/>)}
+          </div>
+        </div>
+        <WfAnnot>Authenticated buyers: last 20 from DB · Visitors: cookie-tracked · Related: same category ordered by popularity</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: CATEGORY PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeCategoryPage(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="01" label="Top Navigation Bar + Breadcrumb">
+        <WfNav/>
+        <div style={{padding:"8px 24px",fontSize:11,background:T.bg2,display:"flex",gap:6}}>
+          {["Home","›","Women"].map((s,i)=>(
+            <span key={i} style={{color:i===2?T.text0:s==="›"?T.text3:T.blueText,fontWeight:i===2?500:400}}>{s}</span>
+          ))}
+        </div>
+      </WfSection>
+
+      <WfSection num="02" label="Category Hero Banner">
+        <div style={{position:"relative",height:150}}>
+          <WfImg height={150} label="Category Banner Image" style={{borderRadius:0}}/>
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+            justifyContent:"flex-end",padding:"20px 28px",
+            background:"linear-gradient(to top, rgba(0,0,0,0.52) 0%, transparent 65%)"}}>
+            <div style={{fontSize:26,fontWeight:700,color:"#fff",marginBottom:4,textShadow:"0 1px 4px rgba(0,0,0,0.4)"}}>Women</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.85)"}}>124 products · Clothing, Footwear, Accessories</div>
+          </div>
+        </div>
+        <WfAnnot>Category image admin-managed in Category Management · Dark gradient overlay ensures legibility on any image · Product count dynamically fetched</WfAnnot>
+      </WfSection>
+
+      <WfSection num="03" label="Subcategory Cards">
+        <div style={{padding:"18px 24px",background:T.bg0}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.text0,marginBottom:12}}>Shop by Subcategory</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
+            {["Dresses","Tops","Trousers","Jackets","Accessories"].map((s,i)=>(
+              <div key={s} style={{border:`1px solid ${i===0?T.blueBorder:T.border1}`,
+                background:i===0?T.blueLight:T.bg0,borderRadius:T.r.lg,overflow:"hidden",cursor:"pointer"}}>
+                <WfImg height={74} style={{borderRadius:0}}/>
+                <div style={{padding:"7px 8px",fontSize:11,fontWeight:i===0?600:400,
+                  color:i===0?T.blueText:T.text0,textAlign:"center"}}>{s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <WfAnnot>Direct child subcategories of current category · Active card highlighted · Hidden if no child categories · Horizontal scroll on mobile</WfAnnot>
+      </WfSection>
+
+      <WfSection num="04+05" label="Filter Sidebar (subcategory-scoped) + Product Grid (3-col)">
+        <div style={{display:"grid",gridTemplateColumns:"200px 1fr"}}>
+          {/* Sidebar */}
+          <div style={{borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg0}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:9}}>
+              Subcategory <span style={{fontWeight:400,color:T.text3,fontSize:10}}>▾</span>
+            </div>
+            {[["Dresses",28,true],["Tops",34,true],["Trousers",22,false],["Jackets",18,false],["Accessories",22,false]].map(([c,n,chk])=>(
+              <label key={c} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="checkbox" defaultChecked={chk} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{c} ({n})</span>
+              </label>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"12px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Price Range</div>
+            <input type="range" min={0} max={100} defaultValue={70} style={{width:"100%",marginBottom:6}}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+              <div style={{background:T.bg2,border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"3px 7px",fontSize:10,color:T.text2}}>₦0</div>
+              <div style={{background:T.bg2,border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"3px 7px",fontSize:10,color:T.text2}}>₦50k</div>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"12px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Size</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+              {["XS","S","M","L","XL"].map((s,i)=>(
+                <div key={s} style={{padding:"3px 8px",border:`1px solid ${i===1?T.blueBorder:T.border0}`,
+                  background:i===1?T.blueLight:"transparent",borderRadius:T.r.sm,
+                  fontSize:10,color:i===1?T.blueText:T.text1,cursor:"pointer"}}>{s}</div>
+              ))}
+            </div>
+            <div style={{height:1,background:T.border2,margin:"12px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:T.text0}}>In Stock Only</span>
+              <div style={{width:34,height:18,background:T.blue,borderRadius:99,position:"relative"}}>
+                <div style={{position:"absolute",right:2,top:2,width:14,height:14,background:"#fff",borderRadius:"50%"}}/>
+              </div>
+            </div>
+          </div>
+          {/* Grid */}
+          <div style={{padding:16,background:T.bg1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:11,color:T.text2}}>Showing <strong style={{color:T.text0}}>62</strong> of 124 products</div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:T.text2}}>Sort:</span>
+                <select style={{fontSize:10,padding:"4px 8px",border:`1px solid ${T.border0}`,borderRadius:T.r.md,fontFamily:T.font}}>
+                  <option>Most Popular</option>
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              {["Dresses","Tops","S","In Stock"].map(f=>(
+                <div key={f} style={{display:"flex",alignItems:"center",gap:3,background:T.blueLight,
+                  border:`1px solid ${T.blueBorder}`,borderRadius:T.r.full,padding:"2px 8px"}}>
+                  <span style={{fontSize:10,color:T.blueText}}>{f}</span>
+                  <span style={{fontSize:11,color:T.blueText,cursor:"pointer"}}>×</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+              {[null,"sale","new",null,"sale",null].map((b,i)=><WfProductCard key={i} badge={b}/>)}
+            </div>
+            <div style={{display:"flex",justifyContent:"center",marginTop:16}}>
+              <WfBtn style={{fontSize:11,padding:"9px 32px"}}>Load More Products</WfBtn>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Category filter pre-applied · Subcategory checkboxes replace root categories · 3-col grid for wider product images</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAMES REGISTRY
+// ══════════════════════════════════════════════════════════════════════════════
+const WIREFRAMES = {
+  homepage:    {component:WireframeHomepage,      batch:"Batch 1 — Public Pages", url:"/"},
+  prod_list:   {component:WireframeProductListing,batch:"Batch 1 — Public Pages", url:"/products"},
+  prod_detail: {component:WireframeProductDetail, batch:"Batch 1 — Public Pages", url:"/products/:slug"},
+  cat_pg:      {component:WireframeCategoryPage,  batch:"Batch 1 — Public Pages", url:"/categories/:slug"},
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ══════════════════════════════════════════════════════════════════════════════
+export default function UserFlowMap() {
+  const svgRef     = useRef(null);
+  const stRef      = useRef({scale:0.32, pan:{x:60,y:30}});
+  const clickRef   = useRef(null);
+
+  const [scale,       setScale]     = useState(0.32);
+  const [pan,         setPan]       = useState({x:60, y:30});
+  const [sel,         setSel]       = useState(null);
+  const [hov,         setHov]       = useState(null);
+  const [drag,        setDrag]      = useState(false);
+  const [ds,          setDs]        = useState(null);
+  const [filterLane,  setFL]        = useState(null);
+  const [tab,         setTab]       = useState("overview");
+  const [wireframe,   setWireframe] = useState(null);
+  const [expandSec,   setExpandSec] = useState(null);
+
+  useEffect(()=>{ stRef.current={scale,pan}; },[scale,pan]);
+
+  // Wheel zoom
+  useEffect(()=>{
+    const el=svgRef.current; if(!el) return;
+    const h=e=>{
+      e.preventDefault();
+      const {scale:s,pan:p}=stRef.current;
+      const r=el.getBoundingClientRect();
+      const mx=e.clientX-r.left, my=e.clientY-r.top;
+      const f=e.deltaY<0?1.1:0.91;
+      const ns=Math.min(5, Math.max(0.07, s*f));
+      setPan({x:mx-(mx-p.x)*(ns/s), y:my-(my-p.y)*(ns/s)});
+      setScale(ns);
+    };
+    el.addEventListener("wheel",h,{passive:false});
+    return ()=>el.removeEventListener("wheel",h);
+  },[]);
+
+  // Escape closes wireframe modal
+  useEffect(()=>{
+    const h=e=>{ if(e.key==="Escape") setWireframe(null); };
+    window.addEventListener("keydown",h);
+    return ()=>window.removeEventListener("keydown",h);
+  },[]);
+
+  const onMD=e=>{ e.preventDefault(); setDrag(true); setDs({x:e.clientX-pan.x, y:e.clientY-pan.y}); };
+  const onMM=e=>{ if(drag&&ds) setPan({x:e.clientX-ds.x, y:e.clientY-ds.y}); };
+  const onMU=()=>{ setDrag(false); setDs(null); };
+
+  // Single vs double-click detection
+  const handleNodeClick = useCallback((e, nodeId)=>{
+    e.stopPropagation();
+    if(clickRef.current){
+      clearTimeout(clickRef.current);
+      clickRef.current=null;
+      if(WIREFRAMES[nodeId]) setWireframe(nodeId);
+    } else {
+      clickRef.current=setTimeout(()=>{
+        clickRef.current=null;
+        setSel(prev=>{
+          const next = prev===nodeId ? null : nodeId;
+          if(next){ setTab("overview"); setExpandSec(null); }
+          return next;
+        });
+        setHov(null);
+      }, 240);
+    }
+  },[]);
+
+  const focus      = sel || hov;
+  const focusEdges = focus ? EDGES.filter(e=>e.f===focus||e.t===focus) : [];
+  const activeIds  = focus ? new Set([focus,...focusEdges.map(e=>e.f===focus?e.t:e.f)]) : null;
+
+  const selNode  = sel ? NMAP[sel] : null;
+  const incoming = sel ? EDGES.filter(e=>e.t===sel) : [];
+  const outgoing = sel ? EDGES.filter(e=>e.f===sel) : [];
+  const pageData = sel ? PAGE_DATA[sel] : null;
+
+  // Build tab list based on whether detailed page data exists
+  const tabs = pageData
+    ? ["overview","sections","from","to"]
+    : ["desc","from","to"];
+
+  const tabLabel = t=>{
+    if(t==="overview") return "Overview";
+    if(t==="sections") return `Sections (${pageData?.sections?.length||0})`;
+    if(t==="desc")     return "Details";
+    if(t==="from")     return `From (${incoming.length})`;
+    if(t==="to")       return `To (${outgoing.length})`;
+    return t;
+  };
+
+  // Wireframe modal data
+  const wireframeEntry = wireframe ? WIREFRAMES[wireframe]    : null;
+  const wireframeNode  = wireframe ? NMAP[wireframe]          : null;
+  const wfIncoming     = wireframe ? EDGES.filter(e=>e.t===wireframe) : [];
+  const wfOutgoing     = wireframe ? EDGES.filter(e=>e.f===wireframe) : [];
+
+  const CANVAS_H = 1550;
+
+  return (
+    <div style={{
+      width:"100vw", height:"100vh", background:"#030710", overflow:"hidden",
+      position:"relative", fontFamily:"'JetBrains Mono','Fira Code',monospace"
+    }}>
+
+      {/* ═══════════════════════════════════════════════════════ HEADER */}
+      <div style={{
+        position:"absolute",top:0,left:0,right:0,zIndex:30,
+        display:"flex",alignItems:"center",gap:14,padding:"9px 16px",
+        background:"linear-gradient(180deg,#030710 60%,transparent)"
+      }}>
+        <div>
+          <div style={{fontSize:9,letterSpacing:4,color:"#1E40AF",textTransform:"uppercase",marginBottom:2}}>
+            WillOfGod E-Commerce
+          </div>
+          <div style={{fontSize:17,fontWeight:700,color:"#E2E8F0",letterSpacing:-0.5}}>
+            User Flow Diagram
+          </div>
+        </div>
+        <div style={{color:"#1E293B",fontSize:10,borderLeft:"1px solid #0F172A",paddingLeft:14}}>
+          {NODES.length} steps · {EDGES.length} transitions · 6 swimlanes
+        </div>
+        <div style={{display:"flex",gap:5,marginLeft:14,flexWrap:"wrap"}}>
+          {LANES.map(l=>(
+            <button key={l.id} onClick={()=>setFL(filterLane===l.id?null:l.id)} style={{
+              background:filterLane===l.id?l.color+"33":"transparent",
+              border:`1px solid ${filterLane===l.id?l.color:l.color+"44"}`,
+              color:filterLane===l.id?l.color:l.color+"88",
+              padding:"2px 9px",borderRadius:4,cursor:"pointer",
+              fontSize:8,letterSpacing:1,fontFamily:"inherit",
+            }}>{l.label}</button>
+          ))}
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          {sel&&(
+            <button onClick={()=>setSel(null)} style={{
+              background:"transparent",border:"1px solid #1E293B",color:"#475569",
+              padding:"3px 10px",borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"inherit",
+            }}>deselect</button>
+          )}
+          <button onClick={()=>{setScale(0.32);setPan({x:60,y:30});setSel(null);setFL(null);}} style={{
+            background:"#0F172A",border:"1px solid #1E293B",color:"#475569",
+            padding:"3px 12px",borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"inherit",
+          }}>RESET</button>
+          <div style={{background:"#0F172A",border:"1px solid #1E293B",color:"#334155",
+            padding:"3px 12px",borderRadius:4,fontSize:10,minWidth:46,textAlign:"center"}}>
+            {Math.round(scale*100)}%
+          </div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════ LEGEND */}
+      <div style={{
+        position:"absolute",top:58,left:10,zIndex:30,
+        background:"#070C18",border:"1px solid #0D1520",borderRadius:8,
+        padding:"10px 12px",minWidth:148
+      }}>
+        <div style={{fontSize:8,color:"#1E293B",letterSpacing:3,marginBottom:8,textTransform:"uppercase"}}>
+          Node Types
+        </div>
+        {[
+          {shape:"page",    label:"Page",         fill:"#0C1424", stroke:"#3B82F6"},
+          {shape:"decision",label:"Decision",     fill:"#0C1424", stroke:"#EF4444"},
+          {shape:"action",  label:"Action/Event", fill:"#0A1020", stroke:"#64748B"},
+          {shape:"start",   label:"Start/End",    fill:"#1E293B", stroke:"#94A3B8"},
+        ].map(({shape,label,fill,stroke})=>(
+          <div key={shape} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+            {shape==="decision"
+              ? <svg width={16} height={12}><polygon points="8,0 16,6 8,12 0,6" fill={fill} stroke={stroke} strokeWidth={1}/></svg>
+              : <svg width={18} height={10}><rect x={0} y={0} width={18} height={10} rx={shape==="start"?5:2} fill={fill} stroke={stroke} strokeWidth={1}/></svg>
+            }
+            <span style={{fontSize:9,color:"#334155"}}>{label}</span>
+          </div>
+        ))}
+        <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #0D1520"}}>
+          <div style={{fontSize:8,color:"#1E293B",letterSpacing:3,marginBottom:5,textTransform:"uppercase"}}>Flow</div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+            <div style={{width:18,height:1.5,background:"#38BDF8"}}/><span style={{fontSize:8,color:"#334155"}}>Forward →</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:7}}>
+            <div style={{width:18,height:1.5,background:"#F59E0B",borderTop:"1.5px dashed #F59E0B"}}/><span style={{fontSize:8,color:"#334155"}}>Incoming ←</span>
+          </div>
+          <div style={{fontSize:8,color:"#1E293B",letterSpacing:3,marginBottom:4,textTransform:"uppercase"}}>Interaction</div>
+          <div style={{fontSize:8,color:"#334155",marginBottom:2}}>Single click → Detail panel</div>
+          <div style={{fontSize:8,color:"#3B82F6"}}>Double click → Wireframe view</div>
+          <div style={{fontSize:8,color:"#475569",marginTop:4}}><span style={{color:"#3B82F6"}}>W</span> badge = wireframe available</div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════ DETAIL PANEL */}
+      {selNode&&(
+        <div style={{
+          position:"absolute",top:58,right:10,zIndex:30,
+          width:370,maxHeight:"calc(100vh - 74px)",
+          overflowY:"auto",scrollbarWidth:"none",
+          background:"#070C18",borderRadius:8,
+          border:`1px solid ${selNode.c}44`,
+          borderLeft:`3px solid ${selNode.c}`,
+          animation:"sli 0.18s ease-out",
+        }}>
+
+          {/* Panel Header */}
+          <div style={{padding:"12px 14px 10px",borderBottom:"1px solid #0D1520"}}>
+            <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{
+                background:LANES.find(l=>l.id===selNode.lane)?.color+"22",
+                color:LANES.find(l=>l.id===selNode.lane)?.color||"#64748B",
+                fontSize:8,letterSpacing:2,padding:"2px 7px",borderRadius:3
+              }}>
+                {LANES.find(l=>l.id===selNode.lane)?.label||selNode.lane}
+              </span>
+              <span style={{background:"#0F172A",color:"#475569",fontSize:8,letterSpacing:1,padding:"2px 7px",borderRadius:3}}>
+                {selNode.s.toUpperCase()}
+              </span>
+              {WIREFRAMES[selNode.id]&&(
+                <button
+                  onClick={()=>setWireframe(selNode.id)}
+                  style={{background:"#3B82F622",color:"#3B82F6",fontSize:8,letterSpacing:1,
+                    padding:"2px 7px",borderRadius:3,border:"1px solid #3B82F644",
+                    cursor:"pointer",fontFamily:"inherit"}}
+                >
+                  ⊞ VIEW WIREFRAME
+                </button>
+              )}
+            </div>
+            <div style={{fontSize:14,fontWeight:700,color:"#E2E8F0",lineHeight:1.3,marginBottom:6}}>
+              {selNode.label.replace(/\n/g," ")}
+            </div>
+            {pageData&&(
+              <p style={{margin:0,fontSize:10,color:"#475569",lineHeight:1.65,fontStyle:"italic",
+                paddingTop:6,borderTop:"1px solid #0A1020"}}>
+                {pageData.purpose}
+              </p>
+            )}
+          </div>
+
+          {/* Tab Bar */}
+          <div style={{display:"flex",borderBottom:"1px solid #0D1520",overflowX:"auto",scrollbarWidth:"none"}}>
+            {tabs.map(t=>(
+              <button key={t} onClick={()=>setTab(t)} style={{
+                flexShrink:0,padding:"7px 9px",background:"transparent",border:"none",
+                cursor:"pointer",fontFamily:"inherit",fontSize:8,letterSpacing:0.8,
+                textTransform:"uppercase",whiteSpace:"nowrap",
+                color:tab===t?selNode.c:"#1E293B",
+                borderBottom:tab===t?`2px solid ${selNode.c}`:"2px solid transparent",
+              }}>
+                {tabLabel(t)}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab Content */}
+          <div style={{padding:"12px 14px"}}>
+
+            {/* ── OVERVIEW / DESC TAB ── */}
+            {(tab==="overview"||tab==="desc")&&(
+              <div>
+                {pageData ? (
+                  <>
+                    <p style={{margin:"0 0 12px",fontSize:11,color:"#64748B",lineHeight:1.78}}>
+                      {pageData.overview}
+                    </p>
+
+                    {/* Key UI States */}
+                    <div style={{marginBottom:14}}>
+                      <div style={{fontSize:9,color:"#F59E0B",letterSpacing:2,marginBottom:7,textTransform:"uppercase"}}>
+                        Key UI States
+                      </div>
+                      {pageData.states.map((s,i)=>(
+                        <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"flex-start"}}>
+                          <div style={{width:4,height:4,borderRadius:1,background:"#F59E0B",flexShrink:0,marginTop:5}}/>
+                          <span style={{fontSize:10,color:"#94A3B8",lineHeight:1.55}}>{s}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Data Requirements */}
+                    <div style={{marginBottom:14}}>
+                      <div style={{fontSize:9,color:"#10B981",letterSpacing:2,marginBottom:7,textTransform:"uppercase"}}>
+                        Data Requirements
+                      </div>
+                      {pageData.dataRequirements.map((d,i)=>(
+                        <div key={i} style={{display:"flex",gap:6,marginBottom:4,alignItems:"flex-start",
+                          background:"#060D18",borderRadius:4,padding:"4px 7px"}}>
+                          <div style={{width:4,height:4,borderRadius:1,background:"#10B981",flexShrink:0,marginTop:5}}/>
+                          <span style={{fontSize:9,color:"#334155",lineHeight:1.5,fontFamily:"'JetBrains Mono',monospace",wordBreak:"break-all"}}>{d}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Design Notes */}
+                    {pageData.designNotes&&(
+                      <div>
+                        <div style={{fontSize:9,color:"#8B5CF6",letterSpacing:2,marginBottom:7,textTransform:"uppercase"}}>
+                          Design Notes
+                        </div>
+                        {pageData.designNotes.map((n,i)=>(
+                          <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"flex-start"}}>
+                            <div style={{width:4,height:4,borderRadius:1,background:"#8B5CF6",flexShrink:0,marginTop:5}}/>
+                            <span style={{fontSize:10,color:"#64748B",lineHeight:1.55}}>{n}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {selNode.desc&&(
+                      <p style={{margin:"0 0 10px",fontSize:11,color:"#64748B",lineHeight:1.75}}>
+                        {selNode.desc}
+                      </p>
+                    )}
+                    {selNode.outcomes&&(
+                      <div style={{marginTop:8}}>
+                        <div style={{fontSize:9,color:"#F59E0B",letterSpacing:2,marginBottom:6,textTransform:"uppercase"}}>Outcomes</div>
+                        {selNode.outcomes.map((o,i)=>(
+                          <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"flex-start"}}>
+                            <div style={{width:5,height:5,borderRadius:1,background:"#F59E0B",flexShrink:0,marginTop:3}}/>
+                            <span style={{fontSize:10,color:"#94A3B8",lineHeight:1.5}}>{o}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── SECTIONS TAB ── */}
+            {tab==="sections"&&pageData&&(
+              <div>
+                <div style={{fontSize:9,color:"#475569",letterSpacing:0.5,marginBottom:10,lineHeight:1.6}}>
+                  Click any section to expand its full component inventory and description.
+                </div>
+                {pageData.sections.map((sec,idx)=>{
+                  const isOpen=expandSec===idx;
+                  return(
+                    <div key={idx} style={{
+                      marginBottom:5,borderRadius:5,overflow:"hidden",
+                      border:`1px solid ${isOpen?selNode.c+"55":"#0D1520"}`,
+                    }}>
+                      <button
+                        onClick={()=>setExpandSec(isOpen?null:idx)}
+                        style={{
+                          width:"100%",background:isOpen?"#0D1A30":"#07090F",
+                          border:"none",padding:"9px 10px",cursor:"pointer",
+                          display:"flex",alignItems:"center",gap:8,textAlign:"left",fontFamily:"inherit"
+                        }}
+                      >
+                        <span style={{fontSize:9,color:selNode.c,fontWeight:700,flexShrink:0,
+                          fontFamily:"'JetBrains Mono',monospace",minWidth:22}}>{sec.num}</span>
+                        <span style={{fontSize:10,color:isOpen?"#E2E8F0":"#94A3B8",flex:1,fontWeight:isOpen?600:400}}>
+                          {sec.name}
+                        </span>
+                        <span style={{fontSize:10,color:"#1E293B",
+                          transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.15s"}}>▾</span>
+                      </button>
+                      {isOpen&&(
+                        <div style={{padding:"10px 12px 12px",background:"#040810",
+                          borderTop:`1px solid ${selNode.c}33`}}>
+                          <p style={{fontSize:10,color:"#475569",lineHeight:1.68,margin:"0 0 12px"}}>
+                            {sec.description}
+                          </p>
+                          <div style={{fontSize:8,color:selNode.c,letterSpacing:2,marginBottom:8,
+                            textTransform:"uppercase"}}>
+                            Component Inventory
+                          </div>
+                          {sec.components.map((comp,ci)=>(
+                            <div key={ci} style={{
+                              display:"flex",gap:7,marginBottom:6,alignItems:"flex-start",
+                              paddingLeft:8,borderLeft:`2px solid ${selNode.c}33`
+                            }}>
+                              <div style={{width:3,height:3,borderRadius:"50%",background:selNode.c,
+                                flexShrink:0,marginTop:6,opacity:0.6}}/>
+                              <span style={{fontSize:9,color:"#64748B",lineHeight:1.6}}>{comp}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ── FROM TAB ── */}
+            {tab==="from"&&(
+              <div>
+                <div style={{fontSize:9,color:"#F59E0B",letterSpacing:2,marginBottom:8,textTransform:"uppercase"}}>
+                  Reached from
+                </div>
+                {incoming.length===0
+                  ? <p style={{color:"#1E293B",fontSize:10,margin:0}}>Entry point — no incoming connections.</p>
+                  : incoming.map((e,i)=>{
+                      const n=NMAP[e.f]; if(!n) return null;
+                      const lc=LANES.find(l=>l.id===n.lane)?.color||"#64748B";
+                      return(
+                        <button key={i} onClick={()=>setSel(e.f)} style={{
+                          width:"100%",background:"#0A1120",
+                          border:`1px solid ${lc}30`,borderLeft:`2px solid ${lc}`,
+                          borderRadius:4,padding:"6px 8px",cursor:"pointer",
+                          display:"flex",alignItems:"center",gap:7,marginBottom:3,textAlign:"left",
+                        }}>
+                          <span style={{fontSize:10,color:"#94A3B8",flex:1,fontFamily:"inherit",lineHeight:1.3}}>
+                            {n.label.replace(/\n/g," ")}
+                          </span>
+                          {e.label&&<span style={{fontSize:8,color:"#1E293B",whiteSpace:"nowrap"}}>{e.label}</span>}
+                        </button>
+                      );
+                    })
+                }
+              </div>
+            )}
+
+            {/* ── TO TAB ── */}
+            {tab==="to"&&(
+              <div>
+                <div style={{fontSize:9,color:"#38BDF8",letterSpacing:2,marginBottom:8,textTransform:"uppercase"}}>
+                  Leads to
+                </div>
+                {outgoing.length===0
+                  ? <p style={{color:"#1E293B",fontSize:10,margin:0}}>Terminal node — no outgoing connections.</p>
+                  : outgoing.map((e,i)=>{
+                      const n=NMAP[e.t]; if(!n) return null;
+                      const lc=LANES.find(l=>l.id===n.lane)?.color||"#64748B";
+                      return(
+                        <button key={i} onClick={()=>setSel(e.t)} style={{
+                          width:"100%",background:"#0A1120",
+                          border:`1px solid ${lc}30`,borderLeft:`2px solid ${lc}`,
+                          borderRadius:4,padding:"6px 8px",cursor:"pointer",
+                          display:"flex",alignItems:"center",gap:7,marginBottom:3,textAlign:"left",
+                        }}>
+                          <span style={{fontSize:10,color:"#94A3B8",flex:1,fontFamily:"inherit",lineHeight:1.3}}>
+                            {n.label.replace(/\n/g," ")}
+                          </span>
+                          {e.label&&<span style={{fontSize:8,color:"#1E293B",whiteSpace:"nowrap"}}>{e.label}</span>}
+                        </button>
+                      );
+                    })
+                }
+              </div>
+            )}
+
+          </div>
+
+          {/* Close button */}
+          <div style={{padding:"0 14px 12px"}}>
+            <button onClick={()=>setSel(null)} style={{
+              width:"100%",background:"transparent",border:"1px solid #0D1520",
+              color:"#1E293B",padding:"6px",borderRadius:4,
+              cursor:"pointer",fontSize:10,fontFamily:"inherit",
+            }}>Close ✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════ WIREFRAME MODAL */}
+      {wireframeEntry&&wireframeNode&&(
+        <div style={{
+          position:"fixed",inset:0,zIndex:100,
+          background:"rgba(2,5,14,0.88)",
+          display:"flex",alignItems:"stretch",justifyContent:"center",
+          backdropFilter:"blur(4px)",
+          animation:"sli 0.2s ease-out",
+        }}>
+          <div style={{
+            width:"90vw",maxWidth:1000,
+            display:"flex",flexDirection:"column",
+            background:"#070C18",
+            borderRadius:12,
+            margin:"28px auto",
+            border:`1px solid ${wireframeNode.c}55`,
+            overflow:"hidden",
+          }}>
+
+            {/* Modal Header */}
+            <div style={{
+              padding:"14px 20px",
+              borderBottom:"1px solid #0D1520",
+              display:"flex",alignItems:"center",gap:12,
+              background:"#060A14",flexShrink:0,
+            }}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontSize:9,color:LANES.find(l=>l.id===wireframeNode.lane)?.color||"#64748B",
+                    letterSpacing:2,textTransform:"uppercase"}}>
+                    {wireframeEntry.batch}
+                  </span>
+                  <span style={{fontSize:9,color:"#1E293B"}}>·</span>
+                  <span style={{fontSize:9,color:"#334155",fontFamily:"'JetBrains Mono',monospace"}}>
+                    {wireframeEntry.url}
+                  </span>
+                </div>
+                <div style={{fontSize:16,fontWeight:700,color:"#E2E8F0"}}>
+                  {wireframeNode.label.replace(/\n/g," ")} — Wireframe
+                </div>
+              </div>
+
+              {/* Relationship summary */}
+              <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                {wfIncoming.length>0&&(
+                  <div style={{fontSize:9,color:"#475569",lineHeight:1.7}}>
+                    <div style={{color:"#F59E0B",letterSpacing:1,marginBottom:3,textTransform:"uppercase",fontSize:8}}>Reached from</div>
+                    {wfIncoming.slice(0,4).map((e,i)=>{
+                      const n=NMAP[e.f]; if(!n) return null;
+                      const lc=LANES.find(l=>l.id===n.lane)?.color||"#64748B";
+                      return(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                          <div style={{width:6,height:6,borderRadius:1,background:lc,flexShrink:0}}/>
+                          <span style={{fontSize:9,color:"#475569"}}>{n.label.replace(/\n/g," ")}</span>
+                        </div>
+                      );
+                    })}
+                    {wfIncoming.length>4&&<div style={{fontSize:8,color:"#1E293B"}}>+{wfIncoming.length-4} more</div>}
+                  </div>
+                )}
+                {wfOutgoing.length>0&&(
+                  <div style={{fontSize:9,color:"#475569",lineHeight:1.7}}>
+                    <div style={{color:"#38BDF8",letterSpacing:1,marginBottom:3,textTransform:"uppercase",fontSize:8}}>Leads to</div>
+                    {wfOutgoing.slice(0,4).map((e,i)=>{
+                      const n=NMAP[e.t]; if(!n) return null;
+                      const lc=LANES.find(l=>l.id===n.lane)?.color||"#64748B";
+                      return(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                          <div style={{width:6,height:6,borderRadius:1,background:lc,flexShrink:0}}/>
+                          <span style={{fontSize:9,color:"#475569"}}>{n.label.replace(/\n/g," ")}</span>
+                        </div>
+                      );
+                    })}
+                    {wfOutgoing.length>4&&<div style={{fontSize:8,color:"#1E293B"}}>+{wfOutgoing.length-4} more</div>}
+                  </div>
+                )}
+              </div>
+
+              <button onClick={()=>setWireframe(null)} style={{
+                background:"#0F172A",border:"1px solid #1E293B",color:"#475569",
+                width:32,height:32,borderRadius:6,cursor:"pointer",
+                fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",
+                flexShrink:0,fontFamily:"inherit",
+              }}>✕</button>
+            </div>
+
+            {/* Wireframe Content */}
+            <div style={{flex:1,overflowY:"auto",background:"#F9FAFB"}}>
+              {(()=>{
+                const WfComp=wireframeEntry.component;
+                return <WfComp/>;
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding:"10px 20px",borderTop:"1px solid #0D1520",
+              display:"flex",justifyContent:"space-between",alignItems:"center",
+              background:"#060A14",flexShrink:0,
+            }}>
+              <div style={{fontSize:9,color:"#1E293B"}}>
+                Press <kbd style={{background:"#0F172A",border:"1px solid #1E293B",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#334155"}}>Esc</kbd> to close
+              </div>
+              <button onClick={()=>setWireframe(null)} style={{
+                background:"transparent",border:"1px solid #1E293B",color:"#334155",
+                padding:"5px 16px",borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"inherit",
+              }}>Close Wireframe</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════ HINT */}
+      <div style={{
+        position:"absolute",bottom:10,right:12,zIndex:20,
+        fontSize:9,color:"#0F172A",letterSpacing:1,
+        textAlign:"right",lineHeight:1.7,
+      }}>
+        scroll to zoom · drag to pan<br/>
+        click step to inspect · double-click for wireframe
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════ SVG CANVAS */}
+      <svg ref={svgRef} width="100%" height="100%"
+        onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={onMU}
+        onClick={()=>{ setSel(null); setHov(null); }}
+        style={{display:"block",cursor:drag?"grabbing":"grab",userSelect:"none"}}>
+
+        <defs>
+          <pattern id="fg" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+            <circle cx="20" cy="20" r="0.6" fill="#0D1826"/>
+          </pattern>
+          {LANES.map(l=>(
+            <marker key={l.id} id={`a${l.id}`} markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
+              <polygon points="0,0 7,3.5 0,7" fill={l.color} opacity="0.85"/>
+            </marker>
+          ))}
+          <marker id="aSYS" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <polygon points="0,0 6,3 0,6" fill="#64748B" opacity="0.8"/>
+          </marker>
+          <marker id="aCAL" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <polygon points="0,0 6,3 0,6" fill="#38BDF8"/>
+          </marker>
+          <marker id="aCAR" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <polygon points="0,0 6,3 0,6" fill="#F59E0B"/>
+          </marker>
+          <marker id="aDIM" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+            <polygon points="0,0 5,2.5 0,5" fill="#111827"/>
+          </marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#030710"/>
+        <rect width="100%" height="100%" fill="url(#fg)"/>
+
+        <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
+
+          {/* ── SWIMLANE BACKGROUNDS ── */}
+          {LANES.map(l=>{
+            if(filterLane&&filterLane!==l.id) return null;
+            const isActive=activeIds?[...activeIds].some(id=>NMAP[id]?.lane===l.id):true;
+            return(
+              <g key={l.id} opacity={activeIds&&!isActive?0.12:1}>
+                <rect x={l.lx} y={30} width={l.lw} height={CANVAS_H}
+                  fill={l.color+"06"} stroke={l.color+"20"} strokeWidth={0.8} rx={12}/>
+                <rect x={l.lx} y={30} width={l.lw} height={38} fill={l.color+"18"} rx={12}/>
+                <text x={l.lx+l.lw/2} y={54} textAnchor="middle"
+                  fill={l.color+"CC"} fontSize={11} fontWeight={700}
+                  fontFamily="monospace" letterSpacing={2}>{l.label}</text>
+              </g>
+            );
+          })}
+
+          {/* ── BACKGROUND EDGES (faint, no focus) ── */}
+          {!activeIds&&EDGES.map((e,i)=>{
+            const fn=NMAP[e.f], tn=NMAP[e.t];
+            if(!fn||!tn) return null;
+            if(filterLane&&fn.lane!==filterLane&&tn.lane!==filterLane) return null;
+            const sfn=SZ[fn.s], stn=SZ[tn.s];
+            const fx=fn.x+sfn.w/2, fy=fn.y+sfn.h;
+            const tx=tn.x+stn.w/2, ty=tn.y;
+            const lc=LANES.find(l=>l.id===fn.lane)?.color||"#64748B";
+            const path=Math.abs(fx-tx)<10
+              ?`M${fx},${fy} L${tx},${ty}`
+              :`M${fx},${fy} C${fx},${fy+40} ${tx},${ty-40} ${tx},${ty}`;
+            return(
+              <path key={`bg${i}`} d={path}
+                fill="none" stroke={lc} strokeWidth={0.5} opacity={0.1}
+                markerEnd="url(#aDIM)"/>
+            );
+          })}
+
+          {/* ── ACTIVE EDGES (focus state) ── */}
+          {focus&&EDGES.map((e,i)=>{
+            const fn=NMAP[e.f], tn=NMAP[e.t];
+            if(!fn||!tn) return null;
+            const isOut=e.f===focus;
+            const isIn=e.t===focus;
+            if(!isOut&&!isIn) return null;
+            const sfn=SZ[fn.s], stn=SZ[tn.s];
+            let fx,fy,tx,ty;
+            if(fn.x < tn.x - sfn.w*0.4){
+              fx=fn.x+sfn.w; fy=fn.y+sfn.h/2;
+              tx=tn.x;        ty=tn.y+stn.h/2;
+            } else if(fn.x > tn.x + sfn.w*0.4){
+              fx=fn.x;           fy=fn.y+sfn.h/2;
+              tx=tn.x+stn.w;    ty=tn.y+stn.h/2;
+            } else {
+              fx=fn.x+sfn.w/2; fy=fn.y+sfn.h;
+              tx=tn.x+stn.w/2; ty=tn.y;
+            }
+            const edgeCol=isOut?"#38BDF8":"#F59E0B";
+            const dx=tx-fx, dy=ty-fy;
+            const path=Math.abs(dx)<5
+              ?`M${fx},${fy} L${tx},${ty}`
+              :`M${fx},${fy} C${fx},${fy+Math.abs(dy)*0.4} ${tx},${ty-Math.abs(dy)*0.4} ${tx},${ty}`;
+            const midX=(fx+tx)/2+(dy*0.05);
+            const midY=(fy+ty)/2-(dx*0.05);
+            const markId=isOut?"aCAL":"aCAR";
+            return(
+              <g key={`ae${i}`}>
+                <path d={path} fill="none"
+                  stroke={edgeCol} strokeWidth={isOut?2:1.5}
+                  strokeDasharray={isIn?"6,3":undefined}
+                  opacity={isOut?0.9:0.65}
+                  markerEnd={`url(#${markId})`}/>
+                {e.label&&(
+                  <text x={midX} y={midY-5} textAnchor="middle"
+                    fill={edgeCol} fontSize={8} fontFamily="monospace" opacity={0.85}>
+                    {e.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          {/* ── NODES ── */}
+          {NODES.map(n=>{
+            if(filterLane&&n.lane!==filterLane) return null;
+            const {x,y,s,c,label}=n;
+            const {w,h}=SZ[s];
+            const isSel   = sel===n.id;
+            const isHov   = hov===n.id;
+            const inA     = activeIds?.has(n.id);
+            const isDim   = activeIds&&!inA;
+            const isCallee= focus&&EDGES.some(e=>e.f===focus&&e.t===n.id);
+            const isCaller= focus&&EDGES.some(e=>e.t===focus&&e.f===n.id);
+            const laneColor=LANES.find(l=>l.id===n.lane)?.color||c;
+            const nodeC   = c||laneColor;
+            const hasWf   = !!WIREFRAMES[n.id];
+
+            const fill   = isSel?nodeC+"2E":isDim?"#040810":isHov?"#0E1930":"#0C1424";
+            const stroke = isSel?nodeC:isCallee?"#38BDF8":isCaller?"#F59E0B":isDim?"#0D1520":isHov?nodeC+"88":nodeC+(s==="action"?"44":"55");
+            const sw     = isSel?1.8:isCallee||isCaller?1.3:0.75;
+            const op     = isDim?0.15:1;
+
+            const lines=label.split("\n");
+
+            return(
+              <g key={n.id}
+                onClick={e=>handleNodeClick(e,n.id)}
+                onMouseEnter={()=>!sel&&setHov(n.id)}
+                onMouseLeave={()=>setHov(null)}
+                opacity={op}
+                style={{cursor:"pointer"}}>
+
+                {/* Glow ring on select */}
+                {isSel&&(
+                  s==="decision"
+                  ?<polygon
+                    points={`${x+w/2},${y-6} ${x+w+6},${y+h/2} ${x+w/2},${y+h+6} ${x-6},${y+h/2}`}
+                    fill="none" stroke={nodeC} strokeWidth={2.5} opacity={0.6}/>
+                  :<rect x={x-5} y={y-5} width={w+10} height={h+10}
+                    rx={s==="start"||s==="end"?(h+10)/2:9}
+                    fill="none" stroke={nodeC} strokeWidth={2} opacity={0.6}/>
+                )}
+
+                {/* Shape */}
+                {s==="decision"
+                  ?<polygon
+                    points={`${x+w/2},${y} ${x+w},${y+h/2} ${x+w/2},${y+h} ${x},${y+h/2}`}
+                    fill={fill} stroke={stroke} strokeWidth={sw}/>
+                  :<rect x={x} y={y} width={w} height={h}
+                    rx={s==="start"||s==="end"?h/2:s==="action"?4:6}
+                    fill={fill} stroke={stroke} strokeWidth={sw}
+                    strokeDasharray={s==="action"?"4,3":undefined}/>
+                }
+
+                {/* Left accent bar (pages only) */}
+                {s==="page"&&(
+                  <rect x={x} y={y} width={3} height={h} rx={3}
+                    fill={nodeC} opacity={isDim?0.1:isSel?1:0.6}/>
+                )}
+
+                {/* Relationship highlight bars */}
+                {isCallee&&<rect x={x+w-3} y={y} width={3} height={h} rx={3} fill="#38BDF8" opacity={0.8}/>}
+                {isCaller&&<rect x={x+w-3} y={y} width={3} height={h} rx={3} fill="#F59E0B" opacity={0.8}/>}
+
+                {/* Wireframe badge (W dot top-right) */}
+                {hasWf&&!isDim&&(
+                  <circle cx={x+w-4} cy={y+4} r={4}
+                    fill="#3B82F622" stroke="#3B82F6" strokeWidth={0.8}/>
+                )}
+                {hasWf&&!isDim&&(
+                  <text x={x+w-4} y={y+4} textAnchor="middle" dominantBaseline="central"
+                    fill="#3B82F6" fontSize={4} fontFamily="monospace"
+                    style={{pointerEvents:"none"}}>W</text>
+                )}
+
+                {/* Label text */}
+                {lines.length===1
+                  ?<text x={x+w/2} y={y+h/2} textAnchor="middle" dominantBaseline="central"
+                    fill={isDim?"#0F172A":isSel?"#F8FAFC":isCallee?"#BAE6FD":isCaller?"#FDE68A":inA?"#CBD5E1":"#64748B"}
+                    fontSize={s==="start"||s==="end"?10.5:10}
+                    fontWeight={isSel?700:s==="start"||s==="end"?600:400}
+                    fontFamily="'JetBrains Mono','Fira Code',monospace"
+                    style={{pointerEvents:"none"}}>{label}</text>
+                  :<>
+                    <text x={x+w/2} y={y+h/2-7} textAnchor="middle" dominantBaseline="central"
+                      fill={isDim?"#0F172A":isSel?"#F8FAFC":isCallee?"#BAE6FD":isCaller?"#FDE68A":inA?"#CBD5E1":"#64748B"}
+                      fontSize={9} fontWeight={isSel?700:400}
+                      fontFamily="'JetBrains Mono','Fira Code',monospace"
+                      style={{pointerEvents:"none"}}>{lines[0]}</text>
+                    <text x={x+w/2} y={y+h/2+7} textAnchor="middle" dominantBaseline="central"
+                      fill={isDim?"#0F172A":isSel?"#CBD5E1":"#475569"}
+                      fontSize={8.5} fontFamily="'JetBrains Mono','Fira Code',monospace"
+                      style={{pointerEvents:"none"}}>{lines[1]}</text>
+                  </>
+                }
+
+                {/* Connection count badge */}
+                {!isDim&&!isSel&&(()=>{
+                  const cnt=EDGES.filter(e=>e.f===n.id||e.t===n.id).length;
+                  if(cnt===0) return null;
+                  return(
+                    <text x={x+w-10} y={y+h-5} textAnchor="middle"
+                      fill={nodeC+"55"} fontSize={7} fontFamily="monospace"
+                      style={{pointerEvents:"none"}}>{cnt}</text>
+                  );
+                })()}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      <style>{`
+        @keyframes sli{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
+        ::-webkit-scrollbar{width:0;height:0}
+      `}</style>
+    </div>
+  );
+}
