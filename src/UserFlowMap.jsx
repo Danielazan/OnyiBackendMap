@@ -348,6 +348,179 @@ const PAGE_DATA = {
       "Subcategory cards scroll horizontally on mobile if > 4",
       "The active category chip in the filter chips row can be dismissed (reverts to all products, then redirects to /products)"
     ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  search_pg:{
+    purpose:"Full-text product search results page. Surfaces matching products ranked by relevance, exposes live autocomplete suggestions, saves search history, and allows buyers to set persistent alerts on search queries.",
+    overview:"The Search Results page is the destination for any query entered in the global search bar. The search bar is expanded, always-visible, and full-width on this page — it becomes the page's primary interactive element. Results are ranked server-side using PostgreSQL tsvector/tsquery relevance scoring. The sidebar filters mirror those on Product Listing but are scoped to only the categories and attributes present in the result set (faceted search). A 'Save this search' button allows authenticated buyers to bookmark queries and receive SSE + email notifications when new matching products are added.",
+    sections:[
+      {num:"01",name:"Expanded Search Bar",description:"Full-width, always-visible search input centered in its own dedicated row. Pre-populated with the current query. Includes a live autocomplete dropdown showing query suggestions (pg_trgm-powered) and the buyer's recent search history. Each recent search can be dismissed or saved as an alert.",components:["Search input — large, 1.5px info-colored border; pre-filled with current query; clear (×) button","Search icon — leading icon inside the input","Search button — trailing CTA inside the input border","Autocomplete dropdown (position:absolute, opens on focus/input)","Dropdown: Suggestions section — query completions from pg_trgm index; first suggestion highlighted","Dropdown: Recent Searches section — past queries with ↺ icon; each has 'Save alert' link and × dismiss button","'Save alert' action — creates SavedSearch record; buyer notified when new matching product added","Annotation: 'Live autocomplete via pg_trgm · Save as alert = notify buyer when new matching product is added'"]},
+      {num:"02",name:"Results Meta Row",description:"Single-row bar below the search input showing the result count, the query string in italics, the sort order, a 'Save this search' button, and a sort dropdown.",components:["Results count — 'Showing N results for [query] · sorted by relevance'","'⚡ Save this search' button — success-colored pill; creates SavedSearch record for authenticated buyers; redirects visitors to login","Sort dropdown — Most Relevant (default), Newest First, Price: Low→High, Price: High→Low, Best Rated"]},
+      {num:"03",name:"Filter Sidebar",description:"Same filter sidebar as Product Listing, but facets are computed from the current result set only — only categories, sizes, and colours that exist in the results are shown.",components:["Category checkboxes — scoped to matching result categories only with counts","Price Range dual slider","Size pill selectors — only sizes present in results","Colour swatches — only colours present in results","In Stock toggle switch"]},
+      {num:"04",name:"Search Results Grid",description:"4-column product grid of matched products. Each card is identical to the Product Listing card. Active filter chips above the grid show current refining filters applied on top of the search.",components:["Active filter chips — dismissible pills for each applied filter; 'Clear all' link","ProductCard × N — image, sale badge, new badge, wishlist button, quick-compare button, name, price, star rating, Add to Cart","'Add to Cart' requires auth — visitors redirected to login","SkeletonCard — shown during initial fetch and on filter change"]},
+      {num:"05",name:"No Results State",description:"Shown when the query returns zero products. Replaces the grid area entirely. Provides spelling hints, suggested alternative search terms, and a Browse All CTA.",components:["Large search icon graphic","Headline — 'No results for [query]'","Sub-label — 'Try fewer keywords or check the spelling'","Suggested alternative search term pills — dynamically generated from related categories or truncated query words","'Browse All Products' primary button — navigates to /products"]}
+    ],
+    states:[
+      "Results found: standard sidebar + grid layout",
+      "Zero results: grid replaced by No Results State; sidebar hidden or collapsed",
+      "Authenticated buyer: 'Save this search' button visible; recent search history shown in autocomplete",
+      "Visitor (unauthenticated): 'Save this search' redirects to login with return_to; recent searches still shown from localStorage",
+      "Loading: skeleton cards in grid; sidebar visible with empty facets",
+      "Filters applied on top of search: active chips row shows filter pills in addition to the query"
+    ],
+    dataRequirements:[
+      "GET /api/search?q=&category=&minPrice=&maxPrice=&sizes=&colors=&inStock=&sort=&page= — full-text search with facets",
+      "Returns: { products[], total_count, facets{ categories[], sizes[], colors[], priceRange{} } }",
+      "GET /api/search/suggestions?q= — autocomplete suggestions via pg_trgm (debounced, 200ms)",
+      "GET /api/saved-searches — buyer's recent search history (auth only)",
+      "POST /api/saved-searches — save search alert (auth required)",
+      "DELETE /api/saved-searches/:id — dismiss a saved search"
+    ],
+    designNotes:[
+      "The autocomplete dropdown must close on Escape and on click-outside; focus trap is not needed here",
+      "Debounce autocomplete API call at 200ms to avoid excessive requests during typing",
+      "Highlight matched query terms in bold within product names in the search results grid",
+      "The 'Save this search' button must show a filled/active state once saved, and toggle to 'Remove alert'",
+      "URL must reflect query and all active filters: /search?q=blue+blazer&category=clothing&inStock=true",
+      "Facets should be returned in the same API response as products (not a separate call) to minimise round trips"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  flash_pg:{
+    purpose:"Dedicated full page for all currently active and upcoming flash sales. Provides buyers a single destination to discover every time-limited deal, with countdown timers, sold-percentage progress bars, and upcoming sale previews.",
+    overview:"The Flash Sales page groups deals by sale name, each sale displayed as a self-contained block with its own header, countdown timer, and 5-column product grid. Multiple concurrent sales are each rendered as separate blocks stacked vertically. An additional 'Upcoming Flash Sales' section below shows future sales in a greyed-out, teaser state with product images blurred or obscured until the sale starts. The 'Flash Sales' nav link is styled with a danger/red accent to draw attention when this page is active.",
+    sections:[
+      {num:"01",name:"Page Header with Active Sale Count",description:"Full-width header block in a secondary background showing the page title, a 'N Active Now' live badge, and a sub-label. Breadcrumb sits within this block.",components:["Page title — 'Flash Sales' H1","Active sales badge — danger-colored pill: 'N Active Now' where N updates via SSE","Sub-label — 'Limited time deals — grab them before they're gone'","Breadcrumb — 'Home › Flash Sales'"]},
+      {num:"02",name:"Active Flash Sale Blocks (one per sale)",description:"Each active sale renders as a bordered card. The card header contains the sale name, a 'LIVE' badge, and the countdown timer. The card body contains a 5-column product grid with sold-% progress bars. A 'View all items in this sale →' secondary button at the bottom links to a filtered product listing scoped to that sale.",components:["SaleCard — bordered, rounded container; one per active flash sale","SaleHeader — sale name (with ⚡ prefix), 'LIVE' badge, countdown timer (H:MM:SS monospace digits)","ProductGrid — 5 columns; ProductCard variant for flash sales: image, sale % badge, name, sale price, strikethrough original price, sold-% progress bar (danger color fill, percentage text below), Add to Cart button","'View all items in this sale →' secondary button — links to /products filtered by this flash sale ID","Multiple SaleCards stacked vertically in order of end_time ASC (soonest-expiring first)"]},
+      {num:"03",name:"Upcoming Flash Sales Section",description:"Below all active sales. Shows sales whose start_time is in the future. Products are shown in a greyed-out, semi-opaque card grid with prices hidden ('Price revealed at start'). A 'Set Reminder' button allows buyers to opt-in to a notification when the sale goes live.",components:["SectionHeader — 'Weekend Mega Sale' + 'Starts in Xh Ym' warning-colored badge","'Set Reminder' button — saves buyer preference; sends SSE + email when sale goes live","UpcomingProductCard × 5 — semi-opaque (opacity 0.6), image visible, name visible, price hidden: 'Price revealed at start'","Section entirely hidden if no upcoming flash sales exist"]}
+    ],
+    states:[
+      "No active flash sales: Active Sales section replaced by a friendly empty state with 'Check back soon' message; Upcoming section shown if future sales exist",
+      "No upcoming sales: Upcoming section hidden entirely",
+      "Authenticated buyer: 'Set Reminder' button enabled; Add to Cart functional",
+      "Visitor: 'Set Reminder' redirects to login; Add to Cart redirects to login",
+      "Sale ends during page view: countdown timer hits 00:00:00, SSE pushes update, sale block fades out and is removed from DOM",
+      "New sale goes live during page view: SSE pushes a new SaleCard into the active section"
+    ],
+    dataRequirements:[
+      "GET /api/flash-sales?status=active — all active flash sales with products + sale prices + sold counts",
+      "GET /api/flash-sales?status=upcoming — future flash sales with product previews (prices omitted)",
+      "SSE /api/events — listens for flash_sale_started, flash_sale_ended events to update page live",
+      "POST /api/flash-sales/:id/remind — set reminder (auth required)",
+      "Product sold count: derived from confirmed order items within the sale window, updated via SSE"
+    ],
+    designNotes:[
+      "Countdown timers use the same shared CountdownTimer component as Homepage and Product Detail — single source of truth",
+      "Sold-% progress bar must not show more than 100% even if sold count exceeds stock (edge case on concurrent orders)",
+      "The 'LIVE' badge should pulse subtly (CSS animation) to indicate real-time status",
+      "SaleCards should be ordered by end_time ASC — the soonest-ending sale is most urgent and shown first",
+      "Flash sale product cards should not show the quick-compare or wishlist buttons to keep the card compact at 5 columns",
+      "Product prices in Upcoming section must be fully hidden server-side — not just CSS hidden — to prevent inspect-element cheating"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  arrivals_pg:{
+    purpose:"Dedicated page for the most recently added products, sorted by creation date and optionally grouped by arrival date. Gives regular shoppers a clean view of what's new since their last visit.",
+    overview:"The New Arrivals page is a chronologically-ordered product catalogue with a date-grouping feature unique to this page. Products are grouped under date labels ('Added Today', 'Added Yesterday', 'Added This Week') as the buyer scrolls. The page header shows a 'Last updated' timestamp to signal freshness. A 'Added Within' radio filter in the sidebar lets buyers narrow to products added in the last 24h, 3 days, 7 days, or 30 days. Category filter tabs at the top allow quick switching between top-level categories. The 'New' badge appears on every card.",
+    sections:[
+      {num:"01",name:"Page Header + Breadcrumb",description:"Two-column header: left holds breadcrumb, page title, and sub-label; right holds a 'Last updated' timestamp showing when the most recent product was added.",components:["Breadcrumb — 'Home › New Arrivals'","Page title — 'New Arrivals' H1","Sub-label — 'Fresh drops this week — updated daily'","Last updated — right-aligned label + timestamp (e.g. 'Today, 09:15 AM'); derived from MAX(created_at) of visible products"]},
+      {num:"02",name:"Category Filter Tabs",description:"Horizontal scrollable tab row of top-level categories. Selecting a tab filters the grid to that category without losing the 'Added Within' sidebar filter. 'All' is selected by default.",components:["TabPill × N — 'All' (active by default), then each top-level category name; horizontal scroll on overflow","Active state — info-colored background + border","Tab selection updates URL query param and re-fetches grid; does not trigger a full page navigation"]},
+      {num:"03",name:"Filter Sidebar",description:"Left sidebar with filters unique or adapted for this page. 'Added Within' radio group replaces the standard category filter.",components:["Added Within — radio group: Today / Last 3 days / Last 7 days / Last 30 days","Price Range — dual-handle range slider","Colour swatches — multi-select","In Stock Only — toggle switch"]},
+      {num:"04",name:"Date-Grouped Product Grid",description:"Product grid on the right, grouped by arrival date with horizontal rule date-label separators. Each group is a 4-column grid with a 'Added [Date] — N products' centred heading between groups. All cards show the 'New' badge. Sorted newest-first within each group.",components:["DateGroupSeparator — thin horizontal rule with centred date label (e.g. 'Added Today — 12 products')","ProductCard (New Arrivals variant) × N — image, 'New' badge (always visible on this page), wishlist button, name, price, star rating, Add to Cart button","Results count — 'N new products in the last X days'","Sort dropdown — Newest First (default), Price: Low→High, Price: High→Low","'Load More' secondary button — appends next page of results to the existing grid (no scroll reset)"]}
+    ],
+    states:[
+      "All category selected: shows all recently added products grouped by date",
+      "Category tab selected: grid refilters to that category; date grouping maintained",
+      "Added Within = Today: shows only products added in the past 24 hours; may show empty state if none",
+      "Empty state: 'No new products added in this period' with CTA to Browse All",
+      "Loading: skeleton cards shown per group",
+      "Authenticated buyer: Add to Cart functional; wishlist functional",
+      "Visitor: Add to Cart + wishlist redirect to login with return_to"
+    ],
+    dataRequirements:[
+      "GET /api/products?sort=newest&addedWithin=7&category=&minPrice=&maxPrice=&colors=&inStock=&page= — new arrivals with filters",
+      "Returns: { products[], total_count, last_updated } — products include created_at for date grouping client-side",
+      "GET /api/categories?root=true — category tab list",
+      "Date grouping logic runs client-side: group by DATE(created_at) and sort DESC"
+    ],
+    designNotes:[
+      "The date-group separator ('Added Today — 12 products') is the key visual differentiator of this page vs the standard product listing",
+      "'Last updated' timestamp in the header is the MAX(created_at) of the fetched result set — update it when results change",
+      "The 'New' badge should always be shown on every card on this page — it is redundant but reassuring to users who expect it here",
+      "Radio-group 'Added Within' filter must mutually exclude options — selecting 'Last 7 days' always includes Today and Yesterday",
+      "'Load More' should append results to the existing grouped list, not reset scroll — maintain date group context"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  sale_pg:{
+    purpose:"Dedicated sale catalogue showing all products currently discounted by either a price markdown (is_on_sale=true) or an active flash sale. Allows buyers to browse and filter the full universe of discounts in one place.",
+    overview:"The Sale page is visually differentiated from other listing pages by its danger-colored banner header, which communicates the promotional nature of the page immediately. Products from two sources appear here: those with is_on_sale=true and their sale_price set by the admin, and those currently included in an active flash sale. Sale Type filter tabs at the top allow buyers to isolate flash sale deals from permanent markdowns. The sidebar includes a unique 'Discount Range' filter (e.g. 10–20%, 20–40%) and a 'Sale Type' radio group. Each card prominently shows the savings amount ('Save ₦N,000') and a flash badge where applicable.",
+    sections:[
+      {num:"01",name:"Page Header + Sale Banner",description:"Full-width danger-colored banner that immediately signals this is a promotional page. Shows breadcrumb, page title, and the total count of items currently on sale.",components:["Banner container — danger background color","Breadcrumb — 'Home › Sale' in danger text color","Page title — 'Sale & Discounted Products' in danger text color","Sub-label — 'Showing all products with active discounts · Up to X% off'","Item count — large number in danger text color + 'items on sale' label; dynamically fetched"]},
+      {num:"02",name:"Sale Type Filter Tabs",description:"Four tab buttons below the banner header to filter by discount type. Each tab shows its item count. Active tab adopts the danger color scheme.",components:["Tab: All Discounts — shows total count; danger-colored when active","Tab: Flash Sales — shows count of flash-sale items only","Tab: Price Marked Down — shows count of is_on_sale=true items","Tab: Bundle Deals — placeholder for future feature (shown greyed or hidden if no bundle deals exist)","Tab selection updates URL query param and refilters grid"]},
+      {num:"03",name:"Filter Sidebar",description:"Left sidebar with filters tailored to the sale context. Includes a unique 'Discount Range' filter and a 'Sale Type' radio group not found on other listing pages.",components:["Discount Range — checkboxes: 10–20% (N), 20–40% (N), 40–60% (N), 60%+ (N)","Category — standard checkbox list with counts scoped to sale items","Price After Discount — range slider; shows final discounted price range","Sale Type — radio: Flash Sale / Price Markdown / Both"]},
+      {num:"04",name:"Sale Products Grid",description:"4-column product grid of all discounted items. Cards are enhanced for the sale context — they prominently show the savings amount and a flash badge for flash-sale items.",components:["Results count — 'N discounted products'","Sort dropdown — Highest Discount (default), Price: Low→High, Price: High→Low, Best Rated","ProductCard (Sale variant) — image, sale % badge, optional '⚡ Flash' badge (for flash-sale items), wishlist button, name, sale price, strikethrough original price, 'Save ₦N,000' green savings label, Add to Cart button","'Load More' secondary button"]}
+    ],
+    states:[
+      "Default: all discounted products (is_on_sale=true OR in active flash sale)",
+      "Flash Sales tab active: only products in currently active flash sales",
+      "Price Marked Down tab active: only is_on_sale=true products (excludes flash-only sales)",
+      "No sale items: empty state with 'No discounts active right now' + 'Browse All Products' CTA",
+      "A flash sale ends during page view: affected products removed from results via SSE update",
+      "Authenticated buyer: Add to Cart functional",
+      "Visitor: Add to Cart redirects to login"
+    ],
+    dataRequirements:[
+      "GET /api/products?onSale=true&saleType=all|flash|markdown&discountMin=&discountMax=&category=&minPrice=&maxPrice=&sort=&page=",
+      "Returns: { products[], total_count, facets{ discountRanges[], categories[] } }",
+      "Product fields include: sale_percentage (computed), savings_amount (computed), is_flash_sale (bool), flash_sale_end_time",
+      "Total sale item count in header: SELECT COUNT(*) WHERE is_on_sale=true OR (in active flash sale)",
+      "SSE: listen for flash_sale_ended to remove expired flash items from the grid in real time"
+    ],
+    designNotes:[
+      "The danger-colored page banner is the only place in the buyer-facing UI that uses the danger color as a full-width background — it must be bold and intentional",
+      "The '⚡ Flash' badge on product cards must be visually distinct from the percentage badge — they can coexist on the same card",
+      "'Save ₦N,000' savings label uses the success (green) color to reinforce positive framing of the discount",
+      "Sort default is 'Highest Discount' — this is unique to this page and should be the obvious sort for deal-hunters",
+      "Discount Range checkboxes should be multi-select (not radio) to allow buyers to include e.g. 20–40% AND 40–60% simultaneously"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  compare_pg:{
+    purpose:"Side-by-side product comparison table allowing buyers to evaluate up to 4 products across all key attributes before making a purchase decision.",
+    overview:"The Product Comparison page is reached by adding products to a comparison context (via the compare button on product cards or the sticky comparison bar) and then clicking 'Compare Now'. The page renders a structured HTML table with product columns and attribute rows. The column with the best value (lowest price or highest rating) is automatically highlighted. Differences between products are visually emphasised. A 'sticky comparison bar' — a floating bar that appears at the bottom of Product Listing and Product Detail pages — is the primary trigger surface for this page. Up to 4 products can be compared simultaneously; a '+' slot invites adding a fourth.",
+    sections:[
+      {num:"01",name:"Page Header",description:"Clean header row with breadcrumb, page title, slot usage counter, and action buttons.",components:["Breadcrumb — 'Home › Compare Products'","Page title — 'Compare Products' H1","Sub-label — 'Select up to 4 products to compare side by side'","Slot counter — 'N of 4 slots used'","'Clear All' secondary button — removes all products from comparison","'Add Product +' primary button — opens a product search modal to add another product"]},
+      {num:"02",name:"Comparison Table",description:"Full-width scrollable HTML table. Column 0 is the attribute label column (sticky on scroll). Each product column shows the product image, name, category, and an optional 'Best Value' badge. The final column is an empty '+' slot for adding a fourth product. Attribute rows cover all key decision dimensions.",components:["TableHeader — sticky on horizontal scroll; product image (90px height), × remove button (top-right of image), product name, category breadcrumb, 'Best Value' badge (info-colored pill) on the column with highest rating or lowest price","AddSlot column — dashed-border image placeholder with '+' label and 'Add a product' text","Attribute rows: Price, Sale Price, Rating (★ display + count), In Stock (✓/✗ with colour coding), Sizes Available, Colours (count), Material, Flash Sale status, Shipping cost","Best-value column highlighted with info background across all rows","In Stock row: ✓ in success green, ✗ in danger red","Sale Price row: discounted values shown in danger red","Flash Sale row: 'Active (ends Xh)' shown in danger red","Bottom action row: 'Add to Cart' primary + 'View Product' secondary per column"]},
+      {num:"03",name:"Sticky Comparison Bar",description:"A floating bar fixed at the bottom of the viewport that appears on Product Listing and Product Detail pages when the buyer has added ≥2 products to the comparison context. Shows product thumbnails with names and a 'Compare Now' CTA.",components:["Bar container — fixed bottom-0, full width, white background with shadow","'Compare:' label","ProductChip × N — mini image thumbnail (24×24px) + product name truncated + × remove button","AddSlot chip — dashed border, '+Add' label, shown when fewer than 4 products selected","'Compare Now' primary button — right-aligned; navigates to /compare with product IDs in query params","Bar appears when compareStore.length >= 2; hidden when < 2"]}
+    ],
+    states:[
+      "1 product selected: comparison bar not shown; 'Compare Now' button disabled",
+      "2–4 products selected: comparison bar visible; 'Compare Now' active",
+      "4 products selected: '+' slot in table and bar hidden; 'Add Product +' button disabled",
+      "A product is out of stock: its 'Add to Cart' button in the table is greyed and labelled 'Out of Stock'",
+      "Best value column: automatically determined — lowest price wins on price rows; highest rating on rating rows; 'Best Value' badge applied to that column header",
+      "Mobile: table scrolls horizontally; attribute label column remains sticky"
+    ],
+    dataRequirements:[
+      "GET /api/products/compare?ids=id1,id2,id3,id4 — fetch full comparison data for up to 4 product IDs",
+      "Returns: products[] each with: price, sale_price, avg_rating, review_count, stock_status, sizes[], colors[], material, flash_sale_active, flash_sale_end_time, shipping_cost",
+      "Compare context (selected product IDs) stored in global state / localStorage — persists across page navigations",
+      "POST /api/cart — add item from comparison table (auth required)"
+    ],
+    designNotes:[
+      "The comparison table must be horizontally scrollable on smaller viewports — the attribute column sticks on the left",
+      "Best-value highlighting is applied column-wide (all cells in that column get the info background) — not just the header",
+      "Differences between rows should be visually surfaced: if only one product has a flash sale, that cell gets a danger highlight",
+      "The sticky comparison bar uses a compound animation: slides up from below when first product is added to reach ≥2 threshold",
+      "Removing a product from the bar (×) immediately updates the table without a page reload",
+      "The 'Add Product +' button in the page header opens an inline search modal (not a new page) for seamless UX"
+    ]
   }
 };
 
@@ -1217,13 +1390,774 @@ function WireframeCategoryPage(){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: SEARCH RESULTS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeSearchResults(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="Nav" label="Top Navigation Bar"><WfNav/></WfSection>
+
+      {/* EXPANDED SEARCH BAR */}
+      <WfSection num="01" label="Expanded Search Bar (full-width · always visible on this page)">
+        <div style={{padding:"14px 24px",background:T.bg2,borderBottom:`1px solid ${T.border1}`}}>
+          <div style={{position:"relative",maxWidth:600,margin:"0 auto"}}>
+            <div style={{display:"flex",alignItems:"center",border:`1.5px solid ${T.blueBorder}`,
+              borderRadius:T.r.md,background:T.bg0,overflow:"hidden"}}>
+              <span style={{padding:"0 12px",fontSize:16,color:T.text3}}>⌕</span>
+              <div style={{flex:1,padding:"9px 4px",fontSize:13,color:T.text0,fontWeight:400}}>
+                Blue blazer women
+              </div>
+              <span style={{padding:"0 10px",fontSize:14,color:T.text3,cursor:"pointer"}}>×</span>
+              <WfBtn primary style={{borderRadius:"0 6px 6px 0",padding:"10px 18px",fontSize:11,alignSelf:"stretch"}}>Search</WfBtn>
+            </div>
+            {/* Autocomplete dropdown */}
+            <div style={{position:"absolute",top:"calc(100% + 3px)",left:0,right:0,background:T.bg0,
+              border:`1px solid ${T.border0}`,borderRadius:T.r.md,zIndex:5,boxShadow:"0 4px 16px rgba(0,0,0,0.08)",overflow:"hidden"}}>
+              <div style={{padding:"8px 0"}}>
+                <div style={{fontSize:9,color:T.text3,padding:"3px 14px",letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:600}}>Suggestions</div>
+                {["Blue blazer women formal","Blue blazer women casual","Blue blazer women size L"].map((s,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",
+                    background:i===0?T.bg2:"transparent",cursor:"pointer"}}>
+                    <span style={{fontSize:13,color:T.text3}}>⌕</span>
+                    <span style={{fontSize:12,color:T.text0}}>{s}</span>
+                  </div>
+                ))}
+                <div style={{height:1,background:T.border2,margin:"4px 0"}}/>
+                <div style={{fontSize:9,color:T.text3,padding:"3px 14px",letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:600}}>Recent Searches</div>
+                {["Red dress","Cotton shirt"].map((s,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"7px 14px",cursor:"pointer"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:12,color:T.text3}}>↺</span>
+                      <span style={{fontSize:12,color:T.text1}}>{s}</span>
+                    </div>
+                    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:T.blueText,cursor:"pointer"}}>Save alert</span>
+                      <span style={{fontSize:13,color:T.text3,cursor:"pointer"}}>×</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Live autocomplete via pg_trgm · 'Save alert' = buyer notified by SSE + email when new matching product is added · Recent searches from buyer history or localStorage</WfAnnot>
+      </WfSection>
+
+      {/* RESULTS META ROW */}
+      <WfSection num="02" label="Results Meta Row">
+        <div style={{padding:"9px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.bg0}}>
+          <div style={{fontSize:11,color:T.text2}}>
+            Showing <strong style={{color:T.text0}}>34</strong> results for <em style={{color:T.blueText}}>"blue blazer women"</em> · sorted by relevance
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{background:T.greenLight,border:`1px solid #BBF7D0`,borderRadius:T.r.full,
+              padding:"3px 10px",fontSize:10,color:T.green,fontWeight:500,cursor:"pointer"}}>
+              ⚡ Save this search
+            </div>
+            <select style={{fontSize:10,padding:"4px 8px",border:`1px solid ${T.border0}`,borderRadius:T.r.md,fontFamily:T.font}}>
+              <option>Most Relevant</option>
+            </select>
+          </div>
+        </div>
+        <WfAnnot>Save this search → creates SavedSearch record; authenticated buyers get SSE + email on new matching products · Visitors redirected to login</WfAnnot>
+      </WfSection>
+
+      {/* SIDEBAR + GRID */}
+      <WfSection num="03+04" label="Filter Sidebar (faceted) + Results Grid (4-col)">
+        <div style={{display:"grid",gridTemplateColumns:"190px 1fr"}}>
+          {/* Sidebar */}
+          <div style={{borderRight:`1px solid ${T.border1}`,padding:14,background:T.bg0}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Category</div>
+            {[["Clothing",22,true],["Footwear",8,false],["Accessories",4,false]].map(([c,n,chk])=>(
+              <label key={c} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="checkbox" defaultChecked={chk} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{c} ({n})</span>
+              </label>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Price Range</div>
+            <input type="range" min={0} max={100} defaultValue={65} style={{width:"100%",marginBottom:5}}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontSize:10,color:T.text3}}>₦0</span>
+              <span style={{fontSize:10,color:T.text3}}>₦50k</span>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Size</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+              {["XS","S","M","L","XL"].map((s,i)=>(
+                <div key={s} style={{padding:"3px 8px",border:`1px solid ${i===2?T.blueBorder:T.border0}`,
+                  background:i===2?T.blueLight:"transparent",borderRadius:T.r.sm,
+                  fontSize:10,color:i===2?T.blueText:T.text1,cursor:"pointer"}}>{s}</div>
+              ))}
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Colour</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+              {[["#0C447C",true],["#2C2C2A",false],["#A32D2D",false],["#B4B2A9",false]].map(([c,act],i)=>(
+                <div key={i} style={{width:18,height:18,borderRadius:"50%",background:c,
+                  border:act?`2.5px solid ${T.text0}`:`1px solid ${T.border0}`,cursor:"pointer"}}/>
+              ))}
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:T.text0}}>In Stock</span>
+              <div style={{width:32,height:17,background:T.blue,borderRadius:99,position:"relative"}}>
+                <div style={{position:"absolute",right:2,top:2,width:13,height:13,background:"#fff",borderRadius:"50%"}}/>
+              </div>
+            </div>
+          </div>
+          {/* Grid */}
+          <div style={{padding:14,background:T.bg1}}>
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+              {["Women","₦5k–₦30k","M","In Stock"].map(f=>(
+                <div key={f} style={{display:"flex",alignItems:"center",gap:3,background:T.blueLight,
+                  border:`1px solid ${T.blueBorder}`,borderRadius:T.r.full,padding:"2px 8px"}}>
+                  <span style={{fontSize:10,color:T.blueText}}>{f}</span>
+                  <span style={{fontSize:12,color:T.blueText,cursor:"pointer"}}>×</span>
+                </div>
+              ))}
+              <button style={{fontSize:10,color:T.text3,background:"transparent",border:"none",cursor:"pointer"}}>Clear all</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9}}>
+              {[null,"sale","new",null,null,null,"sale",null].map((b,i)=><WfProductCard key={i} badge={b} size="sm"/>)}
+            </div>
+          </div>
+        </div>
+      </WfSection>
+
+      {/* NO RESULTS */}
+      <WfSection num="05" label="No Results State (shown when query returns 0 products)">
+        <div style={{padding:"14px 24px",background:T.bg0}}>
+          <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.lg,padding:28,
+            textAlign:"center",background:T.bg2,maxWidth:500,margin:"0 auto"}}>
+            <div style={{fontSize:32,marginBottom:10,color:T.text3}}>⌕</div>
+            <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:4}}>No results for "blue silk blazer"</div>
+            <div style={{fontSize:11,color:T.text2,marginBottom:14}}>Try fewer keywords or check the spelling</div>
+            <div style={{display:"flex",justifyContent:"center",gap:7,flexWrap:"wrap",marginBottom:16}}>
+              {["Blazer","Women Jacket","Formal Wear"].map(s=><WfTag key={s}>{s}</WfTag>)}
+            </div>
+            <WfBtn primary style={{justifyContent:"center"}}>Browse All Products</WfBtn>
+          </div>
+        </div>
+        <WfAnnot>Replaces grid entirely · Suggested terms generated from related categories and truncated query tokens</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: FLASH SALES PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeFlashSales(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Nav with Flash Sales link highlighted red */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",gap:20,
+        background:T.bg0,borderBottom:`1px solid ${T.border1}`,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0,minWidth:90}}>WillOfGod</div>
+        <div style={{display:"flex",gap:22,flex:1,justifyContent:"center"}}>
+          {["Home","Shop"].map(t=><span key={t} style={{fontSize:11,color:T.text2}}>{t}</span>)}
+          <span style={{fontSize:11,color:T.red,fontWeight:700}}>⚡ Flash Sales</span>
+          {["Categories","New Arrivals"].map(t=><span key={t} style={{fontSize:11,color:T.text2}}>{t}</span>)}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:16,color:T.text2}}>♡</span>
+          <div style={{position:"relative"}}>
+            <div style={{width:28,height:28,border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:T.text2}}>🛍</div>
+            <div style={{position:"absolute",top:-5,right:-5,width:16,height:16,background:T.red,
+              color:"#fff",borderRadius:"50%",fontSize:8,fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+          </div>
+          <div style={{width:28,height:28,borderRadius:"50%",background:T.blueLight,
+            border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:10,color:T.blueText,fontWeight:700}}>AB</div>
+        </div>
+      </div>
+
+      {/* PAGE HEADER */}
+      <WfSection num="01" label="Page Header with Active Sale Count">
+        <div style={{background:T.bg2,padding:"16px 24px",borderBottom:`1px solid ${T.border1}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <span style={{fontSize:20,fontWeight:700,color:T.text0}}>Flash Sales</span>
+              <span style={{background:T.redLight,color:T.red,fontSize:11,padding:"2px 10px",
+                borderRadius:T.r.full,fontWeight:600}}>3 Active Now</span>
+            </div>
+            <div style={{fontSize:11,color:T.text2}}>Limited time deals — grab them before they're gone</div>
+          </div>
+          <div style={{fontSize:11,color:T.text3}}>Home › Flash Sales</div>
+        </div>
+        <WfAnnot>'N Active Now' badge live — updates via SSE when a sale starts or ends · Breadcrumb included in header row</WfAnnot>
+      </WfSection>
+
+      {/* ACTIVE SALE BLOCKS */}
+      <WfSection num="02" label="Active Flash Sale Blocks (one card per concurrent sale · ordered by end_time ASC)">
+        <div style={{padding:"16px 24px"}}>
+          {[{name:"Summer Clearance",h:"02",m:"14",s:"37"},{name:"Electronics Week",h:"00",m:"45",s:"18"}].map((sale,si)=>(
+            <div key={si} style={{border:`1px solid ${T.border0}`,borderRadius:T.r.lg,marginBottom:16,overflow:"hidden"}}>
+              {/* Sale header */}
+              <div style={{background:T.bg2,padding:"10px 18px",display:"flex",
+                justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${T.border1}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:15,fontWeight:700,color:T.text0}}>⚡ {sale.name}</span>
+                  <span style={{background:T.redLight,color:T.red,fontSize:9,padding:"2px 7px",
+                    borderRadius:T.r.sm,fontWeight:700}}>LIVE</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{fontSize:11,color:T.text2}}>Ends in:</span>
+                  {[sale.h,sale.m,sale.s].map((t,i)=>(
+                    <span key={i} style={{display:"inline-flex"}}>
+                      <span style={{background:T.bg0,border:`1px solid ${T.border0}`,borderRadius:T.r.sm,
+                        padding:"3px 8px",fontSize:13,fontWeight:700,color:T.text0,fontFamily:T.mono}}>{t}</span>
+                      {i<2&&<span style={{margin:"0 2px",color:T.text2,fontSize:13}}>:</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {/* 5-column product grid */}
+              <div style={{padding:"12px 18px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:10}}>
+                  {[40,55,65,70,80].map((sold,i)=>(
+                    <div key={i} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+                      <div style={{position:"relative"}}>
+                        <WfImg height={90} style={{borderRadius:0}}/>
+                        <div style={{position:"absolute",top:5,left:5,background:T.redLight,color:T.red,
+                          borderRadius:T.r.sm,padding:"2px 5px",fontSize:8,fontWeight:700}}>-{22+si*4+i*3}%</div>
+                        <div style={{position:"absolute",top:5,right:5,width:18,height:18,background:T.bg0,
+                          border:`1px solid ${T.border0}`,borderRadius:"50%",
+                          display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:T.text3}}>♡</div>
+                      </div>
+                      <div style={{padding:7}}>
+                        <WfLine w="85%" h={9} mb={3}/>
+                        <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:4}}>
+                          <WfLine w={40} h={9} mb={0}/>
+                          <span style={{fontSize:8,color:T.text3,textDecoration:"line-through"}}>₦20k</span>
+                        </div>
+                        {/* sold bar */}
+                        <div style={{height:4,background:T.bg3,borderRadius:99,margin:"5px 0 2px"}}>
+                          <div style={{height:"100%",width:`${sold}%`,background:T.red,borderRadius:99}}/>
+                        </div>
+                        <div style={{fontSize:8,color:T.text2,marginBottom:5}}>{sold}% sold</div>
+                        <WfBtn primary style={{width:"100%",fontSize:8,padding:"4px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",justifyContent:"flex-end"}}>
+                  <WfBtn style={{fontSize:10}}>View all items in this sale →</WfBtn>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>One SaleCard per concurrent active flash sale · Ordered by end_time ASC (soonest expiring first) · Sold % bar uses danger color · 'LIVE' badge pulses via CSS animation · Sale card removed from DOM when sale ends (SSE)</WfAnnot>
+      </WfSection>
+
+      {/* UPCOMING */}
+      <WfSection num="03" label="Upcoming Flash Sales (not yet active — prices hidden)">
+        <div style={{padding:"0 24px 18px"}}>
+          <div style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+            <div style={{background:T.bg2,padding:"10px 18px",display:"flex",
+              justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${T.border1}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:14,fontWeight:700,color:T.text0}}>Weekend Mega Sale</span>
+                <span style={{background:"#FFFBEB",border:"1px solid #FDE68A",color:T.yellow,
+                  fontSize:9,padding:"2px 8px",borderRadius:T.r.sm,fontWeight:600}}>Starts in 4h 20m</span>
+              </div>
+              <WfTag>Set Reminder</WfTag>
+            </div>
+            <div style={{padding:"12px 18px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+              {[1,2,3,4,5].map(i=>(
+                <div key={i} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+                  overflow:"hidden",opacity:0.55}}>
+                  <WfImg height={76} style={{borderRadius:0}}/>
+                  <div style={{padding:7}}>
+                    <WfLine w="80%" h={9} mb={3}/>
+                    <WfLine w="55%" h={7} mb={7}/>
+                    <div style={{textAlign:"center",fontSize:9,color:T.text3}}>Price revealed at start</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Products visible but greyed (opacity 0.55) · Prices hidden server-side (not just CSS) · 'Set Reminder' saves preference; buyer notified via SSE + email when sale goes live · Hidden entirely when no upcoming sales</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: NEW ARRIVALS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeNewArrivals(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Nav — New Arrivals link highlighted */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",gap:20,
+        background:T.bg0,borderBottom:`1px solid ${T.border1}`,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0,minWidth:90}}>WillOfGod</div>
+        <div style={{display:"flex",gap:22,flex:1,justifyContent:"center"}}>
+          {["Home","Shop","Flash Sales","Categories"].map(t=><span key={t} style={{fontSize:11,color:T.text2}}>{t}</span>)}
+          <span style={{fontSize:11,color:T.blueText,fontWeight:700}}>New Arrivals</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,
+            padding:"5px 12px",fontSize:10,color:T.text3,width:140}}>🔍 Search products…</div>
+          <div style={{width:28,height:28,borderRadius:"50%",background:T.blueLight,
+            border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:10,color:T.blueText,fontWeight:700}}>AB</div>
+        </div>
+      </div>
+
+      {/* PAGE HEADER */}
+      <WfSection num="01" label="Page Header + Breadcrumb + Last Updated Timestamp">
+        <div style={{padding:"14px 24px",background:T.bg2,borderBottom:`1px solid ${T.border1}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:11,color:T.text3,marginBottom:4}}>Home › New Arrivals</div>
+            <div style={{fontSize:20,fontWeight:700,color:T.text0}}>New Arrivals</div>
+            <div style={{fontSize:11,color:T.text2,marginTop:3}}>Fresh drops this week — updated daily</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:10,color:T.text3,marginBottom:3}}>Last updated</div>
+            <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Today, 09:15 AM</div>
+          </div>
+        </div>
+        <WfAnnot>'Last updated' = MAX(created_at) of fetched results · Updates when grid re-fetches</WfAnnot>
+      </WfSection>
+
+      {/* CATEGORY TABS */}
+      <WfSection num="02" label="Category Filter Tabs (horizontal scroll)">
+        <div style={{padding:"10px 24px",display:"flex",gap:7,borderBottom:`1px solid ${T.border1}`,
+          overflowX:"auto",background:T.bg0}}>
+          {["All","Women","Men","Kids","Footwear","Electronics","Accessories","Food"].map((t,i)=>(
+            <WfTag key={t} active={i===0}>{t}</WfTag>
+          ))}
+        </div>
+        <WfAnnot>Tab selection filters grid without full page reload · Updates URL query param · Horizontal scroll on overflow</WfAnnot>
+      </WfSection>
+
+      {/* SIDEBAR + DATE-GROUPED GRID */}
+      <WfSection num="03+04" label="Filter Sidebar + Date-Grouped Product Grid">
+        <div style={{display:"grid",gridTemplateColumns:"190px 1fr"}}>
+          {/* Sidebar */}
+          <div style={{borderRight:`1px solid ${T.border1}`,padding:14,background:T.bg0}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Added Within</div>
+            {["Today","Last 3 days","Last 7 days","Last 30 days"].map((t,i)=>(
+              <label key={t} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="radio" name="period" defaultChecked={i===2} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{t}</span>
+              </label>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Price Range</div>
+            <input type="range" min={0} max={100} defaultValue={60} style={{width:"100%",marginBottom:5}}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontSize:10,color:T.text3}}>₦0</span>
+              <span style={{fontSize:10,color:T.text3}}>₦50k</span>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Colour</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+              {[["#2C2C2A",false],["#A32D2D",false],["#0C447C",true],["#3B6D11",false],["#B4B2A9",false]].map(([c,act],i)=>(
+                <div key={i} style={{width:18,height:18,borderRadius:"50%",background:c,
+                  border:act?`2.5px solid ${T.text0}`:`1px solid ${T.border0}`,cursor:"pointer"}}/>
+              ))}
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:T.text0}}>In Stock</span>
+              <div style={{width:32,height:17,background:T.blue,borderRadius:99,position:"relative"}}>
+                <div style={{position:"absolute",right:2,top:2,width:13,height:13,background:"#fff",borderRadius:"50%"}}/>
+              </div>
+            </div>
+          </div>
+
+          {/* Date-grouped grid */}
+          <div style={{padding:14,background:T.bg1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:11,color:T.text2}}>
+                <strong style={{color:T.text0}}>47</strong> new products in the last 7 days
+              </div>
+              <select style={{fontSize:10,padding:"3px 7px",border:`1px solid ${T.border0}`,borderRadius:T.r.md,fontFamily:T.font}}>
+                <option>Newest First</option>
+              </select>
+            </div>
+
+            {/* Date group: Today */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{height:1,flex:1,background:T.border1}}/>
+              <div style={{fontSize:9,color:T.text3,whiteSpace:"nowrap",padding:"0 8px",background:T.bg1,fontWeight:600}}>
+                Added Today — 12 products
+              </div>
+              <div style={{height:1,flex:1,background:T.border1}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:16}}>
+              {[1,2,3,4].map(i=>(
+                <div key={i} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+                  <div style={{position:"relative"}}>
+                    <WfImg height={100} style={{borderRadius:0}}/>
+                    <div style={{position:"absolute",top:5,left:5,background:T.greenLight,color:T.green,
+                      borderRadius:T.r.sm,padding:"2px 5px",fontSize:9,fontWeight:700}}>New</div>
+                    <div style={{position:"absolute",top:5,right:5,width:20,height:20,background:T.bg0,
+                      border:`1px solid ${T.border0}`,borderRadius:"50%",
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:T.text3}}>♡</div>
+                  </div>
+                  <div style={{padding:8}}>
+                    <WfLine w="80%" h={9} mb={3}/>
+                    <WfLine w="55%" h={7} mb={5}/>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <WfLine w={42} h={9} mb={0}/>
+                      <span style={{fontSize:10,color:T.yellow,letterSpacing:1}}>★★★★</span>
+                    </div>
+                    <WfBtn primary style={{width:"100%",fontSize:9,padding:"5px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Date group: Yesterday */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{height:1,flex:1,background:T.border1}}/>
+              <div style={{fontSize:9,color:T.text3,whiteSpace:"nowrap",padding:"0 8px",background:T.bg1,fontWeight:600}}>
+                Added Yesterday — 18 products
+              </div>
+              <div style={{height:1,flex:1,background:T.border1}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,marginBottom:14}}>
+              {[1,2,3,4].map(i=>(
+                <div key={i} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+                  <div style={{position:"relative"}}>
+                    <WfImg height={100} style={{borderRadius:0}}/>
+                    <div style={{position:"absolute",top:5,right:5,width:20,height:20,background:T.bg0,
+                      border:`1px solid ${T.border0}`,borderRadius:"50%",
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:T.text3}}>♡</div>
+                  </div>
+                  <div style={{padding:8}}>
+                    <WfLine w="75%" h={9} mb={3}/>
+                    <WfLine w="50%" h={7} mb={5}/>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <WfLine w={40} h={9} mb={0}/>
+                      <span style={{fontSize:10,color:T.yellow,letterSpacing:1}}>★★★</span>
+                    </div>
+                    <WfBtn primary style={{width:"100%",fontSize:9,padding:"5px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:"flex",justifyContent:"center"}}>
+              <WfBtn style={{fontSize:10,padding:"8px 28px"}}>Load More</WfBtn>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Date-grouping is the key visual differentiator of this page · 'Added Within' is a radio (mutually exclusive) · 'New' badge always shown on every card here · 'Load More' appends results without scroll reset</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: SALE / DISCOUNTED PRODUCTS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeSalePage(){
+  const dangerBg="#FEF2F2", dangerText="#991B1B", dangerBorder="#FECACA";
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="Nav" label="Top Navigation Bar"><WfNav/></WfSection>
+
+      {/* SALE BANNER HEADER */}
+      <WfSection num="01" label="Page Header + Sale Banner (danger-colored — unique to this page)">
+        <div style={{background:dangerBg,padding:"16px 24px",borderBottom:`1px solid ${dangerBorder}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:10,color:dangerText,marginBottom:3,letterSpacing:"0.06em",textTransform:"uppercase",fontWeight:500}}>Home › Sale</div>
+              <div style={{fontSize:20,fontWeight:700,color:dangerText}}>Sale & Discounted Products</div>
+              <div style={{fontSize:11,color:dangerText,marginTop:3,opacity:0.8}}>Showing all products with active discounts · Up to 60% off</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:28,fontWeight:700,color:dangerText,lineHeight:1}}>247</div>
+              <div style={{fontSize:11,color:dangerText,opacity:0.8}}>items on sale</div>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Danger-colored banner is unique to this page — the only full-width danger background in the buyer UI · Item count dynamically fetched (is_on_sale=true OR in active flash sale)</WfAnnot>
+      </WfSection>
+
+      {/* SALE TYPE TABS */}
+      <WfSection num="02" label="Sale Type Filter Tabs">
+        <div style={{padding:"10px 24px",display:"flex",gap:8,borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+          {[["All Discounts","247",true],["Flash Sales","38",false],["Price Marked Down","142",false],["Bundle Deals","67",false]].map(([t,c,act])=>(
+            <button key={t} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",
+              border:`1px solid ${act?dangerBorder:T.border0}`,
+              background:act?dangerBg:"transparent",borderRadius:T.r.md,cursor:"pointer"}}>
+              <span style={{fontSize:11,color:act?dangerText:T.text1}}>{t}</span>
+              <span style={{fontSize:9,background:act?T.bg0:T.bg2,color:act?dangerText:T.text3,
+                borderRadius:T.r.full,padding:"1px 6px"}}>{c}</span>
+            </button>
+          ))}
+        </div>
+        <WfAnnot>Tab selection refilters grid · URL param updates · Count badges show items per type</WfAnnot>
+      </WfSection>
+
+      {/* SIDEBAR + GRID */}
+      <WfSection num="03+04" label="Filter Sidebar (sale-specific filters) + Sale Products Grid (4-col)">
+        <div style={{display:"grid",gridTemplateColumns:"190px 1fr"}}>
+          {/* Sidebar */}
+          <div style={{borderRight:`1px solid ${T.border1}`,padding:14,background:T.bg0}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Discount Range</div>
+            {["10% – 20% (84)","20% – 40% (103)","40% – 60% (47)","60%+ (13)"].map((r,i)=>(
+              <label key={r} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="checkbox" defaultChecked={i===1} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{r}</span>
+              </label>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Category</div>
+            {[["Women",82,true],["Men",54,true],["Kids",38,false],["Electronics",41,false],["Footwear",32,false]].map(([c,n,chk])=>(
+              <label key={c} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="checkbox" defaultChecked={chk} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{c} ({n})</span>
+              </label>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Price After Discount</div>
+            <input type="range" min={0} max={100} defaultValue={55} style={{width:"100%",marginBottom:5}}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontSize:10,color:T.text3}}>₦0</span>
+              <span style={{fontSize:10,color:T.text3}}>₦50k</span>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"10px 0"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Sale Type</div>
+            {["Flash Sale","Price Markdown","Both"].map((t,i)=>(
+              <label key={t} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,cursor:"pointer"}}>
+                <input type="radio" name="saletype" defaultChecked={i===2} readOnly style={{width:12,height:12}}/>
+                <span style={{fontSize:10,color:T.text1}}>{t}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* Grid */}
+          <div style={{padding:14,background:T.bg1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:11,color:T.text2}}>
+                <strong style={{color:T.text0}}>136</strong> discounted products
+              </div>
+              <select style={{fontSize:10,padding:"3px 7px",border:`1px solid ${T.border0}`,borderRadius:T.r.md,fontFamily:T.font}}>
+                <option>Highest Discount</option>
+              </select>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+              {[20,25,30,35,40,45,50,55].map((pct,i)=>(
+                <div key={i} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+                  <div style={{position:"relative"}}>
+                    <WfImg height={100} style={{borderRadius:0}}/>
+                    <div style={{position:"absolute",top:5,left:5,background:dangerBg,color:dangerText,
+                      borderRadius:T.r.sm,padding:"2px 6px",fontSize:9,fontWeight:700}}>-{pct}%</div>
+                    {i===2&&(
+                      <div style={{position:"absolute",top:5,right:5,background:dangerBg,color:dangerText,
+                        fontSize:7,padding:"1px 5px",borderRadius:T.r.sm,fontWeight:700}}>⚡ Flash</div>
+                    )}
+                    {i!==2&&(
+                      <div style={{position:"absolute",top:5,right:5,width:20,height:20,background:T.bg0,
+                        border:`1px solid ${T.border0}`,borderRadius:"50%",
+                        display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:T.text3}}>♡</div>
+                    )}
+                  </div>
+                  <div style={{padding:8}}>
+                    <WfLine w="80%" h={9} mb={3}/>
+                    <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:3}}>
+                      <WfLine w={40} h={9} mb={0}/>
+                      <span style={{fontSize:8,color:T.text3,textDecoration:"line-through"}}>₦{20+i*3}k</span>
+                    </div>
+                    <div style={{fontSize:9,color:T.green,marginBottom:6,fontWeight:500}}>Save ₦{3+i}k</div>
+                    <WfBtn primary style={{width:"100%",fontSize:9,padding:"5px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",justifyContent:"center",marginTop:14}}>
+              <WfBtn style={{fontSize:10,padding:"8px 28px"}}>Load More</WfBtn>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Default sort is 'Highest Discount' — unique to this page · 'Save ₦N' in green reinforces positive framing · ⚡ Flash badge coexists with % badge on flash-sale items · Discount Range is multi-select checkbox</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: PRODUCT COMPARISON
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeComparison(){
+  const products=["Classic Blazer","Slim Fit Jacket","Formal Coat"];
+  const attrs=[
+    {label:"Price",       vals:["₦18,500","₦22,000","₦29,000"],type:"price"},
+    {label:"Sale Price",  vals:["₦14,800 (–20%)","₦22,000","₦23,200 (–20%)"],type:"sale"},
+    {label:"Rating",      vals:["★★★★☆ (42)","★★★★★ (87)","★★★☆☆ (23)"],type:"rating"},
+    {label:"In Stock",    vals:["✓ Yes","✓ Yes","✗ No"],type:"stock"},
+    {label:"Sizes",       vals:["XS S M L XL","S M L XL XXL","XS S M L"],type:"text"},
+    {label:"Colours",     vals:["3 options","5 options","2 options"],type:"text"},
+    {label:"Material",    vals:["85% Polyester","100% Cotton","70% Wool"],type:"text"},
+    {label:"Flash Sale",  vals:["Active (ends 2h)","No","No"],type:"flash"},
+    {label:"Shipping",    vals:["Free","Free","₦1,500"],type:"text"},
+  ];
+  const bestColIdx=1; // Slim Fit Jacket — best rated
+
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfSection num="Nav" label="Top Navigation Bar"><WfNav/></WfSection>
+
+      {/* PAGE HEADER */}
+      <WfSection num="01" label="Page Header">
+        <div style={{padding:"12px 24px",background:T.bg2,borderBottom:`1px solid ${T.border1}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10,color:T.text3,marginBottom:3}}>Home › Compare Products</div>
+            <div style={{fontSize:18,fontWeight:700,color:T.text0}}>Compare Products</div>
+            <div style={{fontSize:11,color:T.text2,marginTop:2}}>Select up to 4 products to compare side by side</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:11,color:T.text3}}>3 of 4 slots used</span>
+            <WfBtn style={{fontSize:10}}>Clear All</WfBtn>
+            <WfBtn primary style={{fontSize:10}}>Add Product +</WfBtn>
+          </div>
+        </div>
+        <WfAnnot>'Add Product +' opens an inline product search modal (not a new page) · 'Clear All' resets comparison store · Slot counter updates live</WfAnnot>
+      </WfSection>
+
+      {/* COMPARISON TABLE */}
+      <WfSection num="02" label="Comparison Table (scrollable · attribute column sticky)">
+        <div style={{padding:"16px 24px",overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:560}}>
+            <colgroup>
+              <col style={{width:140}}/>
+              {products.map((_,i)=><col key={i}/>)}
+              <col style={{width:120}}/>
+            </colgroup>
+
+            {/* Product headers */}
+            <thead>
+              <tr>
+                <th style={{padding:0,borderRight:`1px solid ${T.border1}`}}/>
+                {products.map((name,i)=>(
+                  <th key={i} style={{padding:"12px 10px",border:`1px solid ${T.border1}`,verticalAlign:"top",
+                    background:i===bestColIdx?T.blueLight:T.bg0}}>
+                    <div style={{position:"relative"}}>
+                      <button style={{position:"absolute",top:0,right:0,background:"transparent",border:"none",
+                        cursor:"pointer",fontSize:13,color:T.text3,lineHeight:1}}>×</button>
+                    </div>
+                    <WfImg height={90} style={{borderRadius:T.r.md,marginBottom:8,
+                      border:i===bestColIdx?`1px solid ${T.blueBorder}`:undefined}}/>
+                    <div style={{fontSize:12,fontWeight:600,color:i===bestColIdx?T.blueText:T.text0,marginBottom:2}}>{name}</div>
+                    <div style={{fontSize:10,color:T.text3,textAlign:"center"}}>Women / Clothing</div>
+                    {i===bestColIdx&&(
+                      <div style={{background:T.blueLight,color:T.blueText,fontSize:8,borderRadius:T.r.full,
+                        padding:"2px 8px",marginTop:6,textAlign:"center",fontWeight:600}}>Best Value</div>
+                    )}
+                  </th>
+                ))}
+                {/* Add slot */}
+                <th style={{padding:"12px 10px",border:`1px solid ${T.border1}`,background:T.bg2}}>
+                  <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.md,height:90,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:22,color:T.text3,marginBottom:8}}>+</div>
+                  <div style={{fontSize:10,color:T.text3,textAlign:"center"}}>Add a product</div>
+                </th>
+              </tr>
+            </thead>
+
+            {/* Attribute rows */}
+            <tbody>
+              {attrs.map(({label,vals,type})=>(
+                <tr key={label}>
+                  <td style={{padding:"9px 12px",fontSize:10,fontWeight:600,color:T.text2,
+                    borderRight:`1px solid ${T.border1}`,borderBottom:`1px solid ${T.border1}`,
+                    background:T.bg2,position:"sticky",left:0}}>{label}</td>
+                  {vals.map((v,i)=>{
+                    const isBest=i===bestColIdx;
+                    let color=isBest?T.blueText:T.text0;
+                    if(type==="stock") color=v.includes("✓")?T.green:T.red;
+                    else if(type==="flash"&&v.includes("Active")) color=T.red;
+                    else if(type==="sale"&&v!=="₦22,000") color=T.red;
+                    return(
+                      <td key={i} style={{padding:"9px 12px",fontSize:10,textAlign:"center",
+                        border:`1px solid ${T.border1}`,
+                        background:isBest?T.blueLight:T.bg0,color}}>
+                        {type==="rating"
+                          ?<span><span style={{color:T.yellow}}>{v.split(" ")[0]}</span>{" "}<span style={{fontSize:9,color:T.text3}}>{v.split(" ")[1]}</span></span>
+                          :v}
+                      </td>
+                    );
+                  })}
+                  <td style={{border:`1px solid ${T.border1}`,background:T.bg2}}/>
+                </tr>
+              ))}
+
+              {/* CTA row */}
+              <tr>
+                <td style={{padding:"10px 12px",borderRight:`1px solid ${T.border1}`,background:T.bg2}}/>
+                {products.map((n,i)=>(
+                  <td key={i} style={{padding:"10px 12px",border:`1px solid ${T.border1}`,
+                    textAlign:"center",background:i===bestColIdx?T.blueLight:T.bg0}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      <WfBtn primary style={{width:"100%",fontSize:9,justifyContent:"center",
+                        opacity:n==="Formal Coat"?0.4:1}}>{n==="Formal Coat"?"Out of Stock":"Add to Cart"}</WfBtn>
+                      <WfBtn style={{width:"100%",fontSize:9,justifyContent:"center"}}>View Product</WfBtn>
+                    </div>
+                  </td>
+                ))}
+                <td style={{border:`1px solid ${T.border1}`,background:T.bg2}}/>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <WfAnnot>Max 4 products · Best-value column (info background) auto-determined — highest rating wins tie · Out-of-stock product has greyed 'Out of Stock' button · Table scrolls horizontally on mobile; attribute column sticks left</WfAnnot>
+      </WfSection>
+
+      {/* STICKY COMPARISON BAR */}
+      <WfSection num="03" label="Sticky Comparison Bar (fixed bottom — appears on Product Listing + Product Detail when ≥2 products selected)">
+        <div style={{padding:"14px 24px",background:T.bg0}}>
+          <div style={{background:T.bg0,border:`1px solid ${T.border0}`,borderRadius:T.r.lg,
+            padding:"10px 16px",display:"flex",alignItems:"center",gap:10,
+            boxShadow:"0 -2px 12px rgba(0,0,0,0.08)"}}>
+            <span style={{fontSize:11,color:T.text2,whiteSpace:"nowrap",fontWeight:500}}>Compare:</span>
+            {products.map((n,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:T.bg2,
+                border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"4px 9px"}}>
+                <WfImg height={24} style={{width:24,borderRadius:T.r.sm}}/>
+                <span style={{fontSize:10,color:T.text0,whiteSpace:"nowrap"}}>{n}</span>
+                <span style={{fontSize:13,color:T.text3,cursor:"pointer"}}>×</span>
+              </div>
+            ))}
+            <div style={{background:T.bg2,border:`1px dashed ${T.border0}`,borderRadius:T.r.md,
+              padding:"4px 12px",fontSize:10,color:T.text3,cursor:"pointer"}}>+ Add</div>
+            <WfBtn primary style={{marginLeft:"auto",whiteSpace:"nowrap",fontSize:10}}>Compare Now</WfBtn>
+          </div>
+        </div>
+        <WfAnnot>Slides up from bottom when comparison store reaches ≥2 items · Each chip has × to remove · 'Compare Now' navigates to /compare?ids=id1,id2,id3 · Bar hidden when fewer than 2 products selected</WfAnnot>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // WIREFRAMES REGISTRY
 // ══════════════════════════════════════════════════════════════════════════════
 const WIREFRAMES = {
-  homepage:    {component:WireframeHomepage,      batch:"Batch 1 — Public Pages", url:"/"},
-  prod_list:   {component:WireframeProductListing,batch:"Batch 1 — Public Pages", url:"/products"},
-  prod_detail: {component:WireframeProductDetail, batch:"Batch 1 — Public Pages", url:"/products/:slug"},
-  cat_pg:      {component:WireframeCategoryPage,  batch:"Batch 1 — Public Pages", url:"/categories/:slug"},
+  homepage:    {component:WireframeHomepage,        batch:"Batch 1 — Public Pages",     url:"/"},
+  prod_list:   {component:WireframeProductListing,  batch:"Batch 1 — Public Pages",     url:"/products"},
+  prod_detail: {component:WireframeProductDetail,   batch:"Batch 1 — Public Pages",     url:"/products/:slug"},
+  cat_pg:      {component:WireframeCategoryPage,    batch:"Batch 1 — Public Pages",     url:"/categories/:slug"},
+  search_pg:   {component:WireframeSearchResults,   batch:"Batch 2 — Discovery Pages",  url:"/search?q="},
+  flash_pg:    {component:WireframeFlashSales,      batch:"Batch 2 — Discovery Pages",  url:"/flash-sales"},
+  arrivals_pg: {component:WireframeNewArrivals,     batch:"Batch 2 — Discovery Pages",  url:"/new-arrivals"},
+  sale_pg:     {component:WireframeSalePage,        batch:"Batch 2 — Discovery Pages",  url:"/sale"},
+  compare_pg:  {component:WireframeComparison,      batch:"Batch 2 — Discovery Pages",  url:"/compare"},
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
