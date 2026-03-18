@@ -521,6 +521,400 @@ const PAGE_DATA = {
       "Removing a product from the bar (×) immediately updates the table without a page reload",
       "The 'Add Product +' button in the page header opens an inline search modal (not a new page) for seamless UX"
     ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  login_pg:{
+    purpose:"The primary authentication entry point for all users — buyers and admins. Provides two parallel login methods (Google OAuth and email + password) in a branded, conversion-optimised split layout.",
+    overview:"The Login page uses a two-column split layout. The left panel is a static brand panel that reinforces value propositions with a feature checklist and brand illustration — it is purely motivational and non-interactive. The right panel contains the full login form. Google OAuth is presented above the fold as the preferred, lowest-friction method. Below a visual divider, the traditional email + password form is available. Both methods flow through the same post-login logic: anonymous activity is merged into the authenticated account, and the buyer is redirected to their original destination (via return_to query param) or the homepage. Admins who log in via this same form are routed to the Admin Dashboard instead.",
+    sections:[
+      {num:"01",name:"Brand Panel (left column)",description:"Static motivational panel occupying the left half of the split layout. Contains the logo, a welcome sub-heading, a brand illustration placeholder, and a 4-item checklist of buyer benefits. Purely decorative and informational — no interactive elements.",components:["Logo — WillOfGod brand name, large font weight","Welcome headline — 'Welcome back. Sign in to access your orders, wishlist and exclusive deals.'","Brand illustration — image placeholder (admin-uploaded asset or design-time illustration)","Feature checklist × 4 — each item: circular success-coloured checkmark icon + label: 'Access your orders & tracking', 'Manage your wishlists', 'Exclusive member deals', 'Faster checkout'"]},
+      {num:"02",name:"Google OAuth Button",description:"Presented first, above the email form, as the lowest-friction login method. Clicking initiates the Google OAuth consent flow. Server-side: the returned ID token is verified via Google's public JWKS endpoint. If the email has no existing account, one is auto-created with is_verified=true and the buyer is logged in seamlessly.",components:["Google OAuth button — full-width, outlined, white background, Google G icon, label: 'Continue with Google'","Annotation: 'Google OAuth · ID token verified server-side · New users auto-registered with is_verified=true'"]},
+      {num:"03",name:"'Or' Divider",description:"Visual separator between the Google button and the email form. A horizontal line with 'or sign in with email' centred in white space.",components:["Divider rule — two lines with centred text: 'or sign in with email'"]},
+      {num:"04",name:"Email + Password Form",description:"Standard credential form. Email field is a plain text input. Password field has a show/hide toggle (👁 icon, absolute-positioned right). On validation failure, the password field border turns to danger colour and an inline error message appears below it with a 'Forgot password?' link. A 'Remember me' checkbox extends session duration. Rate limiting engages after 5 failed attempts per 15 minutes per IP.",components:["Email input — type=email, placeholder 'you@example.com', label 'Email address'","Password input — type=password, placeholder 'Enter your password', padding-right for 👁 icon, label 'Password'","Show/hide toggle — absolute 👁 icon in password field; toggles type between password and text","Error state — password field border turns danger-coloured; inline error message below: '! Incorrect email or password. Forgot password?' (the forgot link is inline in the error text)","'Remember me' checkbox — left-aligned, extends session TTL","'Forgot password?' link — right-aligned, in the same row as 'Remember me'","Sign In primary button — full width","Rate limit annotation: 'Rate limited to 5 attempts per 15 min per IP · Anonymous browsing history merged on login'","Footer text — 'Don't have an account? Create account' link"]},
+    ],
+    states:[
+      "Default: both fields empty, no error states shown",
+      "Credentials error: password border → danger, inline error message visible with Forgot password link",
+      "Rate limited (429): form disabled, 'Too many attempts. Please try again in X minutes.' banner shown",
+      "Loading (submitting): Sign In button shows spinner/disabled state to prevent double-submission",
+      "Return redirect: page loaded with ?return_to=/cart — post-login, user is sent back to that URL",
+      "Admin login: same form — role=admin on the user record causes redirect to /admin/dashboard instead of homepage",
+      "Google OAuth error: if Google consent is denied or fails, an inline banner displays the OAuth error"
+    ],
+    dataRequirements:[
+      "POST /api/auth/login — { email, password } → sets httpOnly JWT cookie, returns { role, redirect_to }",
+      "GET /api/auth/google — initiates OAuth redirect flow",
+      "POST /api/auth/google/callback — verifies ID token, creates or retrieves user, sets session",
+      "POST /api/auth/merge-anonymous — called after successful login to merge anonymous activity (cart, recently viewed, page views)"
+    ],
+    designNotes:[
+      "Split layout: left panel is bg-secondary, right panel is bg-primary; a single vertical border divides them",
+      "The show/hide password toggle must NOT use a separate button element — use an absolutely positioned span to avoid form submission on click",
+      "The inline error message should include the 'Forgot password?' link as a natural reading flow, not as a separate element below",
+      "Google button must follow Google's brand guidelines: white background, Google G icon, exact label 'Continue with Google'",
+      "Post-login merge (linkAnonymousToUser) must be called before the redirect — use an await chain server-side",
+      "Both auth methods must honour the return_to query param; sanitise the URL to prevent open redirect attacks"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  signup_pg:{
+    purpose:"New buyer registration page. Collects personal details, country, and password in a single multi-step inline form while guiding the user through what comes next via a visible step indicator.",
+    overview:"The Sign Up page uses the same two-column split layout as Login, but the left panel shows a 3-step progress indicator alongside the brand panel. The right panel contains the full registration form presented as a single scrollable form with inline step sections. Step 1 collects name, email, and password (with real-time strength meter). Step 2 is an inline country selection dropdown. Both steps are on the same screen — there is no multi-page step navigation. On submission, the account is created with is_verified=false, and two emails are dispatched: a verification email and a welcome email. The buyer is redirected to the Email Verification page.",
+    sections:[
+      {num:"01",name:"Brand Panel + Step Indicator (left column)",description:"The left panel contains the WillOfGod brand mark, a short motivational tagline, a brand illustration, and a vertical 3-step indicator showing the signup journey: Personal Details (active), Your Country (upcoming), Verify Email (upcoming).",components:["Logo + tagline — 'Join thousands of shoppers. Get access to exclusive deals, order tracking and your personal wishlist.'","Brand illustration placeholder","Step indicator — vertical list of 3 steps, each with: numbered circle (info-coloured when active, tertiary when upcoming), step title, step sub-label","Step 01: Personal Details — active (info background circle, bold title)","Step 02: Your Country — upcoming (greyed circle, normal title)","Step 03: Verify Email — upcoming (greyed circle, normal title)"]},
+      {num:"02",name:"Step 1 — Personal Details Form",description:"Top section of the right panel form. Collects full name, email address, password, and confirm password. Name and email show real-time inline validation (success state = green border + '✓ Looks good' / '✓ Available'). Password shows a 4-segment strength bar with a text label (Weak / Medium / Strong). Confirm password shows a match/mismatch indicator.",components:["Heading — 'Create account' + 'Already have one? Sign in' link","Google Sign Up button — full-width outlined, same style as Login page","'Or sign up with email' divider","Full name input — type=text, placeholder 'John Adebayo'; success state: green border + '✓ Looks good' below","Email input — type=email; success state: green border + '✓ Available' (checked via async email-availability endpoint); error state: '✕ Already registered — Sign in?' with login link inline","Password input — type=password, 👁 show/hide toggle, label 'Password', padding-right for icon","Password strength bar — 4-segment horizontal bar: each segment fills with colour (danger=red → warning=amber → success=green) based on entropy score; text label below: 'Weak / Medium — add a special character / Strong'","Confirm password input — type=password, shows '✓ Passwords match' in success green when both match, '✕ Passwords do not match' in danger red when they differ"]},
+      {num:"03",name:"Step 2 — Country Selection (inline)",description:"Directly below Step 1 fields in the same form. A labelled country dropdown. Selected country is stored on the user profile and affects currency display throughout the site. This is not a gate — users can change country later in their profile.",components:["Country label — 'Your country'","Country dropdown — <select> with all countries; default: 'Select your country…'; pre-selects Nigeria as first option based on geolocation hint","Annotation: 'Country stored on user profile · Affects currency display · Can be updated later in Profile Settings'"]},
+      {num:"04",name:"Terms Checkbox + CTA",description:"Bottom of the form. Terms acceptance checkbox is required. Create Account button is the form submit. Below it, a sign-in redirect link.",components:["Terms checkbox — required; label: 'I agree to the Terms & Conditions and Privacy Policy' with both as inline links","Create Account primary button — full width; disabled until terms checkbox is checked","Annotation: 'On submit: account created with is_verified=false · Verification + welcome emails dispatched'","Footer text — 'Already have an account? Sign in instead'"]}
+    ],
+    states:[
+      "Default: all fields empty, step indicator shows Step 01 active",
+      "Name field valid: green border, '✓ Looks good'",
+      "Email available: green border, '✓ Available'",
+      "Email already registered: danger border, '✕ Already registered — Sign in?' with inline link",
+      "Password weak: 1 segment filled in red, 'Weak — needs uppercase, number and special character'",
+      "Password medium: 2–3 segments filled in amber, 'Medium — add a special character'",
+      "Password strong: all 4 segments filled in green, 'Strong password ✓'",
+      "Passwords match: confirm field green border, '✓ Passwords match'",
+      "Passwords mismatch: confirm field danger border, '✕ Passwords do not match'",
+      "Terms unchecked on submit: checkbox highlighted, form not submitted",
+      "Submitting: button shows spinner/disabled state"
+    ],
+    dataRequirements:[
+      "GET /api/auth/check-email?email= — real-time email availability check (debounced 400ms)",
+      "POST /api/auth/register — { name, email, password, country } → creates user (is_verified=false), dispatches verification + welcome emails",
+      "GET /api/countries — list of country names and codes for the dropdown"
+    ],
+    designNotes:[
+      "Password strength is computed client-side using zxcvbn or equivalent entropy scorer — no server round-trip",
+      "Email availability check is debounced at 400ms; show a subtle loading indicator in the field while the request is in-flight",
+      "The confirm password check runs purely client-side on input — no API call needed",
+      "Terms checkbox must be a real <input type=checkbox> for accessibility — do not use a custom div",
+      "Country dropdown should respect the user's browser locale as a default selection hint, but Nigeria is the first option in the list",
+      "The Google Sign Up button behaves identically to the Login page Google button — Google auto-selects between register and login"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  verify_pg:{
+    purpose:"Email verification flow — handles three distinct states: post-signup check-your-email prompt, successful token verification with auto-redirect countdown, and expired/invalid token error with resend option.",
+    overview:"The Email Verification page is a single-column, centred, narrow-layout page (max-width ~480px) that a buyer lands on in two contexts: (1) immediately after sign-up, where it shows the 'Check your email' prompt; and (2) after clicking the verification link in the email, where it shows either a success state (token valid) or a failure state (token expired or already used). The success state includes a live 3-second countdown before auto-redirecting to the Login page. All three states live on the same route (/verify-email) but render conditionally based on the URL query param and server-side token validation result.",
+    sections:[
+      {num:"01",name:"Check Email State (post-signup prompt)",description:"The default state shown immediately after account creation. A large mail icon, a headline, and a message telling the buyer where the link was sent. Below: a 'Didn't get the email?' helper box with a Resend button.",components:["Minimal nav bar — logo only, no nav links (distraction-free context)","Mail icon — 64×64px circle, info-coloured background, ✉ symbol inside","Headline — 'Check your email'","Body text — 'We sent a verification link to [email address]. Click the link in the email to verify your account.' (email in bold)","'Didn't get the email?' helper card — secondary background, slightly lower visual prominence: title, body ('Check your spam folder. The link expires in 24 hours.'), 'Resend Verification Email' secondary button","Resend button annotation: 'Resend generates new token, stores new Redis key (24h TTL), sends new email · Previous token is invalidated'"]},
+      {num:"02",name:"Verification Success State (valid token)",description:"Shown after the server validates the token from the URL query string. Displays a large success checkmark, a confirmation message, a countdown timer counting down from 3 to 0, and a manual 'Go to Login Now' button for buyers who don't want to wait.",components:["Success icon — 64×64px circle, success-coloured background, ✓ symbol inside","Headline — 'Email verified!'","Body text — 'Your account is now active. You can start shopping.'","Countdown box — secondary background card: 'Redirecting to login in...' label + large monospace countdown number (3 → 2 → 1 → redirect)","'Go to Login Now' button — allows immediate redirect without waiting for countdown","Annotation: 'Auto-redirect to login after 3s · is_verified=true set on user record · Redis key deleted'"]},
+      {num:"03",name:"Verification Failed State (expired/invalid token)",description:"Shown when the token in the URL does not exist in Redis (expired, already used, or tampered). Displays a danger icon, error message, and two actions: request a new link or go back to login.",components:["Danger icon — 64×64px circle, danger-coloured background, ✕ symbol","Headline — 'Link expired or invalid'","Body text — 'This verification link has expired or already been used. Request a new one below.'","'Send New Verification Email' primary button — generates and sends a new token","'Back to Login' text link — below the button"]}
+    ],
+    states:[
+      "Post-signup: renders State 01 (check email prompt); email address interpolated from POST /register response stored in session",
+      "Valid token (?token=xxx): server validates → State 02 shown; countdown starts; is_verified=true written to DB",
+      "Invalid/expired token: server returns error → State 03 shown",
+      "Resend clicked (in State 01 or 03): new token generated; cooldown of 60s before resend is allowed again (prevents spam); button shows 'Sent! Check your inbox' with a tick after success",
+      "Resend cooldown: 'Resend Verification Email' button is disabled and shows countdown: 'Resend in Xs'"
+    ],
+    dataRequirements:[
+      "GET /api/auth/verify-email?token= — validates HMAC token against Redis; sets is_verified=true on match; deletes Redis key",
+      "Returns: { success: true } | { error: 'expired' | 'invalid' | 'already_verified' }",
+      "POST /api/auth/resend-verification — { email } → generates new token, stores in Redis (24h TTL), sends email",
+      "Rate limit on resend: 1 per 60 seconds per email address"
+    ],
+    designNotes:[
+      "All three states render on the same route — the component determines which state to show based on the URL query param and API response",
+      "The countdown timer (3 → 0) uses setInterval; clear the interval on component unmount to avoid memory leaks",
+      "The 'Go to Login Now' button should cancel the interval timer and navigate immediately",
+      "The nav bar on this page is minimal (logo only) — no distracting navigation links during the verification flow",
+      "Email address should be interpolated from session storage (set by the register response) — not from the URL to avoid exposure",
+      "The resend cooldown must be enforced both client-side (UI disabled) and server-side (Redis rate key)"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  forgot_pg:{
+    purpose:"Password recovery entry point. Accepts the buyer's email address and always returns a success response (whether or not the email exists) to prevent user enumeration attacks.",
+    overview:"The Forgot Password page is a single-column, centred, narrow-layout page (max-width ~420px). It contains one input field and a submit button. The security-critical design decision is that the success message is always displayed regardless of whether the submitted email is registered — this eliminates the ability for an attacker to test whether an email address has an account. The page also shows a rate-limit error state when the buyer has submitted too many requests within a 15-minute window.",
+    sections:[
+      {num:"01",name:"Enter Email Form",description:"Minimal focused form. A warning-coloured key icon reinforces the password recovery context. The email field is the only input. A back-to-login link is available both above and below the form.",components:["Minimal nav bar — logo (left) + '← Back to Login' text link (right)","Key icon — 56×56px circle, warning-coloured background, 🔑 symbol","Headline — 'Forgot your password?'","Body text — 'Enter your email address and we'll send you a reset link. The link expires in 1 hour.'","Email input — type=email, placeholder 'you@example.com', label 'Email address'","'Send Reset Link' primary button — full width","'← Back to Login' text link — centred below the button"]},
+      {num:"02",name:"Success State (always shown — even if email not found)",description:"Replaces the form after submission. A success-coloured banner card with an email icon, a title, and a carefully worded message that is intentionally ambiguous about whether the email exists in the system.",components:["Success banner card — success-coloured background and border, rounded corners","Email icon — ✉ in success colour","Title — 'Reset link sent'","Body text — 'If that email exists in our system, a reset link has been sent. Check your inbox and spam folder.'","Annotation: 'Response is identical whether email exists or not — prevents user enumeration attack · Redis key set with 1h TTL only if user exists'"]},
+      {num:"03",name:"Rate Limit State",description:"Shown in place of the success state when the buyer has exceeded the allowed number of reset requests within the rate limit window.",components:["Danger banner card — danger-coloured background and border","Title — 'Too many requests'","Body text — 'You've made too many reset requests. Please wait 15 minutes before trying again.'"]}
+    ],
+    states:[
+      "Default: empty email field, form visible",
+      "Submitted (any email): form replaced by success banner (State 02) regardless of whether email exists",
+      "Rate limited: form replaced by danger banner (State 03); form cannot be re-submitted until cooldown expires",
+      "Invalid email format: client-side validation; email field shows 'Please enter a valid email address' before submission"
+    ],
+    dataRequirements:[
+      "POST /api/auth/forgot-password — { email } → always returns 200 with identical JSON; internally: if user exists, generates 32-byte token, stores HMAC hash in Redis (1h TTL), dispatches reset email",
+      "Rate limit: 3 requests per 15 min per IP address; returns 429 when exceeded"
+    ],
+    designNotes:[
+      "The success message MUST be identical whether the email is registered or not — this is a security requirement, not a UX preference",
+      "Do not show any loading state on the button that could hint at whether a DB lookup is happening",
+      "The page is intentionally minimal — no sidebar, no navigation, no distractions; all focus is on the single action",
+      "The rate limit banner replaces the entire form area — it is not shown alongside the form",
+      "The '← Back to Login' links (both in the nav and below the form) use the same route — no JavaScript needed"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  reset_pg:{
+    purpose:"Password reset form reached via the one-time link in the reset email. Validates the token from the URL, displays a secure new-password form with inline requirement checking, and handles both success and expired-token states.",
+    overview:"The Reset Password page is a single-column, centred narrow layout (max-width ~420px). It is accessed exclusively via the reset link dispatched by the Forgot Password flow — the URL contains a signed token. The server validates the token on page load; if valid, the form is displayed. Both the new password and confirm password fields include the same strength meter used on the Sign Up page. A password requirements checklist updates in real-time as the buyer types. On success, all active sessions for the account are invalidated, a confirmation email is sent, and the buyer is redirected to Login. On token expiry, an error state is shown with an option to request a fresh link.",
+    sections:[
+      {num:"01",name:"Reset Password Form (token valid state)",description:"The main form shown when the token is valid. Lock icon reinforces security context. The buyer's masked email address is shown as a personalisation cue. Both password fields show the strength meter and the requirements checklist updates live.",components:["Minimal nav bar — logo only","Lock icon — 56×56px circle, info-coloured background, 🔒 symbol","Headline — 'Reset your password'","Sub-text — 'Choose a strong new password for [email]' (email masked, e.g. jo***@email.com)","New password input — type=password, 👁 show/hide toggle, label 'New password'","Password strength bar — 4-segment bar: all green when strong","Strength label — 'Strong password ✓' in success green (or 'Weak/Medium' in respective colours)","Confirm new password input — type=password, 👁 show/hide toggle; success state: '✓ Passwords match'","Password requirements checklist card — secondary background: 5 items with ✓ (success) or ✕ (danger): At least 8 characters, Uppercase letter (A-Z), Lowercase letter (a-z), Number (0-9), Special character (!@#$…)","'Reset Password' primary button — full width","Annotation: 'On success: password_hash updated · all sessions invalidated · confirmation email sent · redirect to login'"]},
+      {num:"02",name:"Success State",description:"Replaces the form after the password is successfully updated. A large success checkmark, a confirmation message, and a single 'Go to Login' button.",components:["Success icon — 56×56px circle, success-coloured background, ✓ symbol","Headline — 'Password updated!'","Body text — 'All your active sessions have been signed out for security. Please sign in with your new password.'","'Go to Login' button — centre-aligned, not full-width"]},
+      {num:"03",name:"Expired Token State",description:"Shown when the server validates the URL token and finds it missing from Redis (expired or already used). Offers two recovery options.",components:["Danger icon — 56×56px circle, danger-coloured background, ✕ symbol","Headline — 'Reset link expired'","Body text — 'This reset link has expired or already been used. Password reset links are valid for 1 hour.'","'Request New Link' primary button — navigates back to /forgot-password","'Back to Login' secondary button — side by side with Request New Link"]}
+    ],
+    states:[
+      "Token valid (on page load): form rendered; token stored in component state for submission",
+      "Token expired/invalid (on page load): State 03 shown immediately; form never rendered",
+      "Password weak: segments fill partially in amber/red; requirements checklist shows unmet items in danger red",
+      "Password strong: all 4 segments green; all 5 requirements show ✓ in success green",
+      "Passwords match: confirm field green border, '✓ Passwords match'",
+      "Passwords mismatch: confirm field danger border, '✕ Passwords do not match'",
+      "Submitting: button disabled/spinner to prevent double-submission",
+      "Success (200 from API): State 02 rendered; all sessions invalidated server-side; confirmation email sent"
+    ],
+    dataRequirements:[
+      "GET /api/auth/validate-reset-token?token= — verifies HMAC token exists in Redis; called on page load",
+      "Returns: { valid: true, masked_email: 'jo***@email.com' } | { valid: false, reason: 'expired' | 'invalid' }",
+      "POST /api/auth/reset-password — { token, new_password } → updates password_hash, deletes Redis key, invalidates all sessions (DELETE FROM sessions WHERE user_id=), sends confirmation email"
+    ],
+    designNotes:[
+      "Token validation must happen server-side on page load — never trust the token validation to client-side alone",
+      "The masked email ('jo***@email.com') is returned from the token validation endpoint and stored in component state — it personalises the form without exposing the full address in the URL",
+      "Password requirements checklist updates on every keypress — pure client-side, no API calls",
+      "The strength bar and requirements checklist are shared components with the Sign Up page",
+      "After success, do NOT keep the reset token in the URL — navigate to /login with a ?message=password_reset_success query param to show a confirmation banner on the login page"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  maint_pg:{
+    purpose:"System-wide maintenance gate shown to all visitors and buyers when maintenance mode is enabled by an admin. Communicates status, shows estimated return time, and preserves admin access.",
+    overview:"The Maintenance Page is a full-screen, centred informational page served by middleware that intercepts all incoming requests when maintenance_mode=true in site settings. Admins are exempt: the middleware checks the JWT role and allows admin users through. For everyone else, this page replaces all routes. It features a large warning icon, a headline, an estimated completion time (admin-set), a set of work-in-progress task pills, and an email notification capture for visitors who want to be alerted when the site returns. A persistent admin access banner at the bottom remains available for admins to log in during the outage. A third section (Section 03) shows the admin-facing maintenance settings form as context for UI/UX designers building the admin Site Settings page.",
+    sections:[
+      {num:"01",name:"Main Maintenance Screen (shown to all visitors and buyers)",description:"Full-height centred layout on a secondary background. Warning-coloured gear icon, headline, body text, an estimated completion time card, three task-pill chips, and an email notification capture form.",components:["Minimal nav bar — logo (left) + 'Maintenance Mode' warning-coloured pill badge (right)","Gear icon — 80×80px circle, warning-coloured background, ⚙ symbol (32px)","Headline — 'We'll be back soon'","Body text — 'We're performing scheduled maintenance to improve your experience. We apologise for the inconvenience.'","Estimated completion card — white card, 'ESTIMATED COMPLETION' small caps label, time value (e.g. 'Today at 3:00 PM WAT'), sub-note 'Set by admin in site settings'","Work-in-progress task chips × 3 — horizontal row: '◻ Upgrading database', '◻ Deploying new features', '◻ Performance optimisation'","Email notification section — 'Get notified when we're back:' label, email input + 'Notify Me' primary button"]},
+      {num:"02",name:"Admin Access Banner",description:"Fixed to the bottom of the maintenance screen. A subtle bar with a green status dot indicating admin access is still available, and an 'Admin Login →' button that routes to the standard login page.",components:["Green status dot — 8×8px circle, success colour","Text — 'Admin access is available during maintenance'","'Admin Login →' primary button — routes to /login; admin role grants bypass of maintenance middleware","Annotation: 'Middleware checks maintenance_mode setting · Redirects all non-admin requests to this page · Admin can still log in and manage the dashboard'"]},
+      {num:"03",name:"Admin: Maintenance Mode Toggle (in Site Settings — shown for UI/UX reference)",description:"The admin-facing control that enables/disables maintenance mode. Rendered here for completeness so UI/UX designers know what the admin form looks like when building the Site Settings page.",components:["Settings card — white background, rounded border","Row: 'Maintenance Mode' label + sub-text 'Blocks all visitor and buyer access to the site' + warning-coloured toggle switch (ON state)","Divider","Maintenance message textarea — label 'Maintenance message (shown to visitors)'; pre-filled with current message","Estimated completion datetime input — type=datetime-local","'Save Maintenance Settings' primary button — full width","Annotation: 'Changes take effect immediately on save · No server restart required'"]}
+    ],
+    states:[
+      "Maintenance mode ON: this page is served to ALL requests from non-admin users; replaces every public route",
+      "Admin user: middleware detects role=admin in JWT → bypasses maintenance page; all admin routes remain accessible",
+      "Email notification submitted: 'Notify Me' button shows success state: '✓ We'll let you know!'; email stored server-side",
+      "Maintenance mode OFF: this page is never served; all routes return to normal",
+      "Estimated completion time not set by admin: time field shows 'To be confirmed' instead of a specific time"
+    ],
+    dataRequirements:[
+      "Middleware: check site_settings.maintenance_mode on EVERY request (cached in Redis, TTL 30s)",
+      "If maintenance_mode=true AND req.user.role !== 'admin': serve maintenance page with 503 status",
+      "GET /api/settings/public — returns { maintenance_mode, maintenance_message, maintenance_eta, site_name, logo_url } — publicly accessible even in maintenance mode",
+      "POST /api/maintenance/notify — { email } → stores email for notification when maintenance ends",
+      "Admin: PATCH /api/settings — { maintenance_mode, maintenance_message, maintenance_eta } → updates settings, invalidates Redis cache"
+    ],
+    designNotes:[
+      "The maintenance page must be served with HTTP 503 and a Retry-After header set to the estimated completion time — this signals to search engines not to de-index the site",
+      "The page must load without any JS bundle if possible — it should be a lightweight static render since the app may be in a broken state",
+      "The admin access banner must always be visible — do not let it be scrolled off screen; use position sticky or fixed",
+      "The gear icon should have a subtle CSS spin animation (rotate 360deg, 8s linear infinite) to visually reinforce that work is in progress",
+      "The email notification capture is a simple POST — no account required; store emails in a separate notification_subscribers table"
+    ]
+  },
+
+  cart_pg:{
+    purpose:"The pre-checkout holding area where buyers review selected items, adjust quantities, apply coupon codes, and confirm order composition before committing to payment.",
+    overview:"Two-column layout: wide left column lists all cart items with real-time stock and price; narrower right column holds order summary, coupon input, and checkout CTA. Items are always fetched fresh from the DB so flash sale prices and OOS states are current. Out-of-stock items block Proceed to Checkout.",
+    sections:[
+      {num:"01",name:"Cart Items List",description:"Each item row: 70×70px thumbnail, name, variant, flash badge, strikethrough original price if discounted, stock status pill, quantity stepper, Save and Remove actions. OOS items rendered at 0.6 opacity with stepper replaced by Remove button.",components:["Page header — 'My Cart (N items)', 'Clear All' danger text button","CartItem row × N — thumbnail (70×70px), product name, variant text, ⚡ Flash Sale badge (danger), strikethrough original price, sale price, stock pill (● In Stock success / ● Only N left warning / ✕ Out of stock danger)","Quantity stepper — − / count / +; max = stock_quantity; disabled for OOS","'♡ Save' text button — moves to wishlist (auth required)","'✕ Remove' text button — removes from cart","OOS item — 0.6 opacity, stepper hidden, Remove button danger-bordered","Continue Shopping link (left), 'Remove out-of-stock items to proceed' hint (right, only when OOS items exist)"]},
+      {num:"02",name:"Order Summary",description:"Right-column sticky card. Subtotal, applied discount in success green, shipping note, bold total.",components:["Subtotal row — 'Subtotal (N items)' + value","Discount row — success green, shown only when coupon applied","Divider","Total row — bold, larger font","'Shipping calculated at checkout' sub-note"]},
+      {num:"03",name:"Coupon Code Input",description:"Real-time coupon validation. Success banner replaces input on valid code. Specific error messages on failure.",components:["Coupon text input + 'Apply' primary button inline","Success state — success-coloured banner: code name, discount description, savings amount, × dismiss","Error state — danger inline message: 'Expired' / 'Usage limit reached' / 'Minimum order ₦X,XXX required'"]},
+      {num:"04",name:"Checkout CTA + Payment Badges",description:"Primary conversion CTA. Blocked when OOS items present.",components:["'Proceed to Checkout →' primary button — full width; disabled (HTML disabled attr) when OOS items exist","Stripe / PayPal / Paystack pill badges below button"]},
+      {num:"05",name:"You May Also Like",description:"2-column mini product grid driving incremental discovery in the right column.",components:["2 mini product cards — thumbnail (60px height), name lines, price line"]}
+    ],
+    states:[
+      "Items present, none OOS: stepper enabled, Proceed button active",
+      "OOS items present: affected rows 0.6 opacity, Proceed button disabled, hint text shown",
+      "Cart empty: full-page empty state — illustration + 'Your cart is empty' + 'Start Shopping' CTA",
+      "Coupon applied: success banner visible, discount row in summary, total recalculated",
+      "Flash sale expires mid-session: SSE event → price reverts, badge removed, summary recalculates",
+      "Buy Now entry: single item pre-selected, Proceed to Checkout is immediate CTA"
+    ],
+    dataRequirements:[
+      "GET /api/cart — items with current prices, stock, flash sale status (fresh DB fetch every load)",
+      "PATCH /api/cart/:item_id — { quantity } → updated cart totals",
+      "DELETE /api/cart/:item_id — remove item; DELETE /api/cart — clear all",
+      "POST /api/cart/:item_id/save — move to wishlist (auth required)",
+      "POST /api/coupons/validate — { code, cart_total } → { valid, discount_type, discount_value, savings_amount, error_code }",
+      "SSE /api/events — flash_sale_ended, stock_changed events"
+    ],
+    designNotes:[
+      "Cart prices MUST be fetched from DB on every load — never read from client cache",
+      "Quantity stepper max enforced client-side AND server-side",
+      "'Proceed to Checkout' must use HTML disabled attribute, not just CSS opacity",
+      "Flash sale badge on cart item shows countdown timer if sale ends within 1 hour",
+      "Anonymous visitor carts stored server-side via session_id cookie; merged on login"
+    ]
+  },
+
+  checkout_pg:{
+    purpose:"Final order configuration before payment. Captures fulfillment type, delivery address or pickup location, order notes, and payment provider selection.",
+    overview:"Two-column layout under a stripped nav (logo + 🔒 Secure Checkout only). A 4-step progress bar shows Cart ✓ → Checkout (active) → Payment → Confirmation. Left column: fulfillment toggle, address/pickup selector, order notes. Right column: read-only order summary + payment provider selection + Place Order CTA.",
+    sections:[
+      {num:"01",name:"Checkout Progress Steps",description:"4-step linear progress bar. Cart ✓ done (success), Checkout active (info), Payment and Confirmation upcoming (tertiary).",components:["Step dot × 4 — 28×28px circles: success ✓ / info active / tertiary upcoming","Connecting bar — success colour for completed, tertiary for upcoming","Step label below each dot"]},
+      {num:"02",name:"Fulfillment Type Toggle",description:"Two large toggle cards side by side. Delivery selected by default. Clicking Pickup switches the address section.",components:["Delivery card — 🚚 icon, 'Delivery', 'Ship to your address'; info border+bg when selected","Pickup card — 🏪 icon, 'Pickup', 'Collect from our store'; standard border when unselected"]},
+      {num:"03",name:"Delivery: Address Selection",description:"Radio list of saved addresses. Default pre-selected. Inline add-address form expands on click.",components:["AddressCard × N — radio button, label (Home/Office), address string, 'Default' success pill; info border+bg when selected","'+ Add New Address' dashed-border info button — expands inline form","Inline form — Full name, Phone, Street, City, State, Country; Save + Cancel"]},
+      {num:"04",name:"Pickup Location (shown when Pickup selected)",description:"Radio list of admin-managed active pickup locations, each showing name, address, opening hours.",components:["PickupLocationCard × N — radio button, location name, address, opening hours; info border+bg when selected"]},
+      {num:"05",name:"Order Notes",description:"Optional free-text textarea for delivery/packaging instructions.",components:["Label 'Delivery / Order Notes (optional)'","Textarea — 2 rows, placeholder 'Any special instructions…'"]},
+      {num:"06",name:"Order Summary Sidebar",description:"Read-only item list + price breakdown in the right column.",components:["Item rows — 36×36 thumbnail, name, variant, price","Subtotal / Shipping / Coupon / Total breakdown"]},
+      {num:"07",name:"Payment Provider + CTA",description:"Radio list of admin-enabled providers. 'Place Order & Pay →' full-width primary button.",components:["Provider radio card × N — radio, name, supported methods, logo placeholder","Stripe (default), PayPal, Paystack","'Place Order & Pay →' primary button, full width","'By placing an order you agree to our Terms & Conditions' sub-note"]}
+    ],
+    states:[
+      "Delivery selected: address selector shown; pickup hidden",
+      "Pickup selected: pickup list shown; address hidden",
+      "No saved addresses: only '+ Add New Address' shown; form expanded by default",
+      "Add New Address expanded: inline form visible below address cards",
+      "'Place Order & Pay →' clicked: form validated, order created PENDING, navigate to Payment page"
+    ],
+    dataRequirements:[
+      "GET /api/addresses — buyer saved delivery addresses",
+      "POST /api/addresses — create address inline",
+      "GET /api/pickup-locations — admin-managed active locations",
+      "GET /api/settings/payment-providers — admin-enabled providers",
+      "POST /api/orders — creates PENDING order, returns order_id"
+    ],
+    designNotes:[
+      "Nav must be stripped to logo + secure checkout label only to reduce abandonment",
+      "Fulfillment toggle cards must be minimum 44px height (mobile tap target)",
+      "Default address pre-selected from is_default=true in addresses response",
+      "'Place Order & Pay →' validates all required fields before enabling"
+    ]
+  },
+
+  payment_pg:{
+    purpose:"Provider-specific payment UI rendered after order creation. Handles Stripe Elements card input, PayPal Smart Button, and Paystack redirect. Shows processing overlay during confirmation.",
+    overview:"Most security-sensitive page. Nav stripped to logo + SSL label. Progress bar shows Cart ✓ / Checkout ✓ / Payment (active) / Confirmation. Left column renders provider-specific payment UI (one at a time). Right column: locked read-only order summary + security badges. Card data never touches the app server — Stripe Elements renders in a sandboxed iframe.",
+    sections:[
+      {num:"01",name:"Progress Steps (Payment active)",description:"Cart ✓ (success) / Checkout ✓ (success) / Payment (info/active) / Confirmation (tertiary upcoming).",components:["Same step-dot + bar component as Checkout; Cart and Checkout both show ✓"]},
+      {num:"02",name:"Stripe Card Payment Form",description:"Stripe Elements sandboxed iframe wrapper. Three fields: card number (with network icon detection), expiry, CVC.",components:["Section heading — 'Pay with Card' + Visa/MC logo placeholders","Stripe Elements container — secondary bg, rounded border, iframe annotation label","Card number field — monospace '4242  4242  4242  4242', card icon right-aligned","Expiry field — 'MM / YY', half-width","CVC field — '•••', half-width","Annotation: 'Card data never touches our server — PCI compliant via Stripe Elements iframe'"]},
+      {num:"03",name:"PayPal Option",description:"PayPal Smart Button rendered in a dashed-border container. Clicking redirects to PayPal approval flow.",components:["Container — dashed border, secondary bg, centred","PayPal button — #003087 navy bg, white 'Pay with PayPal'","'Clicking redirects to PayPal approval page' sub-text"]},
+      {num:"04",name:"Paystack Option",description:"Single CTA button redirecting to Paystack hosted payment page.",components:["Container — dashed border, secondary bg, centred","'Supports Card, Bank Transfer, USSD' label","Paystack button — #00C3F7 teal bg, 'Pay ₦36,000 with Paystack'","'Redirects to Paystack hosted payment page' sub-text"]},
+      {num:"05",name:"Processing Overlay",description:"Shown after buyer initiates payment. Prevents double-submission. Three animated dots.",components:["Info-coloured banner — 'Processing your payment…', 'Please do not close this page'","Three pulsing dots — info colour, varying opacity","Payment button disabled during this state"]},
+      {num:"06",name:"Order Summary Sidebar (read-only)",description:"Locked right column. Item rows, price breakdown, delivery address, security badges, Back to Checkout button.",components:["Item name + price rows (read-only)","Subtotal / Shipping / Coupon / Total breakdown","'Delivering to:' address text","Security badges — 🔒 SSL Encrypted, 🔒 PCI DSS Compliant, 🔒 Secure Payment Gateway","'← Back to Checkout' secondary button"]}
+    ],
+    states:[
+      "Stripe selected: Stripe Elements form visible; PayPal/Paystack hidden",
+      "PayPal selected: PayPal button visible; Stripe/Paystack hidden",
+      "Paystack selected: Paystack button visible; Stripe/PayPal hidden",
+      "Processing: overlay shown, all fields non-interactive, button disabled",
+      "Payment success (webhook): navigate to Order Confirmation; order → CONFIRMED; stock committed",
+      "Payment failure (webhook): danger banner — 'Payment failed. Please try again.'; stock released; order → CANCELLED",
+      "Stripe client-side error: inline error below card field"
+    ],
+    dataRequirements:[
+      "GET /api/orders/:id — pending order for summary sidebar",
+      "POST /api/payments/stripe/confirm — { order_id, payment_method_id }",
+      "Stripe webhook POST /api/webhooks/stripe — payment_intent.succeeded / payment_intent.payment_failed",
+      "POST /api/payments/paypal/create-order + POST /api/payments/paypal/capture",
+      "POST /api/payments/paystack/initialize + GET /api/payments/paystack/verify?reference="
+    ],
+    designNotes:[
+      "Card data NEVER passes through app server — Stripe Elements handles PCI compliance entirely",
+      "Processing overlay must block all interaction — CSS pointer-events:none on underlying elements",
+      "Stripe Elements styled via the appearance API to match app font and colours",
+      "Three loading dots animation must be CSS-only keyframe opacity"
+    ]
+  },
+
+  order_conf:{
+    purpose:"Post-purchase confirmation showing order was placed and payment received. Provides order reference, tracking number, full order details, delivery info, and next-step actions.",
+    overview:"Single-column centred layout (max-width ~600px). Nav stripped to logo only. Opens with a large success checkmark + personalised headline, then: order reference and tracking number as copyable monospace cards, full item + price summary, delivery/pickup info, and three action buttons. Receipt email + PDF confirmation email dispatched automatically.",
+    sections:[
+      {num:"01",name:"Success Header",description:"Centred success icon, congratulatory headline, personalised sub-text.",components:["Success icon — 72×72px circle, success bg, ✓ 32px","Headline — 'Order Confirmed!'","Sub-text — 'Thank you, [first name]. Your payment was successful and your order is being processed.'"]},
+      {num:"02",name:"Order Reference + Tracking Number",description:"Two-column info card grid. Each card: small-caps label + monospace value.",components:["OrderReferenceCard — 'ORDER REFERENCE', reference value in monospace","TrackingNumberCard — 'TRACKING NUMBER', tracking value in monospace","Both: secondary bg, rounded border, 1fr 1fr grid"]},
+      {num:"03",name:"Order Items Summary",description:"Bordered card listing items (thumbnail, name, variant, qty, price) + full price breakdown.",components:["OrderItem row × N — 44×44px thumbnail, name, variant+qty, price right-aligned","Subtotal / Discount (success green) / Shipping (Free success green) / Divider / 'Total Paid' bold"]},
+      {num:"04",name:"Delivery / Pickup Info",description:"Two-column info card grid — fulfillment address and estimated delivery.",components:["'Delivering to' card — buyer name, street, city+state","'Estimated Delivery' card — date (e.g. 'March 20, 2026'), 'Set by admin · Updates when status changes'","If pickup: left card shows 'Pickup Location' + location name and address"]},
+      {num:"05",name:"Action Buttons",description:"Three action buttons in a clear hierarchy.",components:["'Download Invoice' primary button — PDF download","'View My Orders' secondary button — /account/orders","'Continue Shopping' full-width secondary — /products","Annotation: 'Receipt email + confirmation email with PDF invoice sent · SSE notification pushed to buyer'"]}
+    ],
+    states:[
+      "Delivery order: 'Delivering to' shows postal address; estimated delivery if admin has set it",
+      "Pickup order: 'Pickup Location' card shows location name + address",
+      "No estimated delivery set: 'Estimated Delivery' card shows 'To be confirmed'",
+      "Invoice generating: 'Download Invoice' briefly disabled while PDF generates"
+    ],
+    dataRequirements:[
+      "GET /api/orders/:id — full order data including items, totals, address/pickup, tracking_number, estimated_delivery",
+      "GET /api/orders/:id/invoice — PDF blob for download",
+      "order_id stored in session after POST /api/orders (not exposed in URL)",
+      "SSE event order.confirmed pushed after successful payment webhook"
+    ],
+    designNotes:[
+      "Page must not be accessible without order_id in session — redirect to /orders if accessed directly",
+      "Success icon entry animation — scale 0→1 with ease-out spring",
+      "Order reference and tracking number should each have a clipboard copy icon button",
+      "All amounts must be pulled from the order record — never from cart state"
+    ]
+  },
+
+  my_orders:{
+    purpose:"The buyer's persistent order history. Filterable, paginated list of all orders with colour-coded status badges, quick actions, and navigation to order detail.",
+    overview:"Two-column layout: 200px left AccountSidebar (shared across all account pages) and wider right content area. Horizontal status filter tabs with per-tab counts, followed by chronological order cards. SSE updates status badges in real-time.",
+    sections:[
+      {num:"01",name:"Account Sidebar",description:"Left nav shared across all buyer account pages. Buyer avatar, name, role. Vertical nav list with current section highlighted.",components:["Buyer avatar — 36×36px circle, info bg, initials","Buyer name bold + 'Buyer · Location' sub-label","Nav items — My Orders (active), Profile, Addresses, Wishlists, Reviews, Saved Searches, Notifications, Notification Prefs","Active item — info bg, info bold text; inactive — transparent bg, secondary text"]},
+      {num:"02",name:"Status Filter Tabs",description:"One tab per order status with count badge. 'All' default selected.",components:["Tabs — All (12), Pending (2), Confirmed (1), Packed (1), Shipped (3), Delivered (4), Cancelled (1)","Active tab — info border + bg; count badge uses bg-primary","Inactive tab — standard border; count badge uses bg-secondary","Tab selection filters list; URL updates with ?status="]},
+      {num:"03",name:"Orders List",description:"Chronological order cards. Each card: reference, date+items+type, status badge, total, contextual actions.",components:["OrderCard — bordered, rounded, 12px padding","Order reference — monospace bold 11px","Date · items · fulfillment type — tertiary 9px","Status badge — Pending #FAEEDA/#633806 · Confirmed #E1F5EE/#085041 · Packed #EEEDFE/#3C3489 · Shipped #E6F1FB/#0C447C · Delivered #EAF3DE/#27500A · Cancelled #FCEBEB/#791F1F","Order total — 13px bold","'Write Review' info-bordered button — Delivered orders only","'View Order →' primary button — always shown"]}
+    ],
+    states:[
+      "All tab: all orders shown",
+      "Status tab: filtered list; empty state if no orders in status",
+      "Empty state: 'You haven't placed any orders yet' + 'Start Shopping' CTA",
+      "SSE update: affected badge animates in real time without refresh",
+      "Loading: skeleton order cards"
+    ],
+    dataRequirements:[
+      "GET /api/orders?status=&page=&limit= — paginated buyer orders with status filter",
+      "Returns { orders[], total_count, status_counts{ all, pending, confirmed, packed, shipped, delivered, cancelled } }",
+      "SSE /api/events — order.status_updated events to update badge live"
+    ],
+    designNotes:[
+      "AccountSidebar is a shared component across ALL buyer account pages — extract as reusable",
+      "Status badge colours must be consistent throughout the entire app — use a central STATUS_COLORS constant",
+      "'Write Review' button only rendered when status=DELIVERED — never server-render for other statuses",
+      "SSE badge update should include a brief background-flash animation to draw attention"
+    ]
+  },
+
+  order_detail_b:{
+    purpose:"Full buyer-facing order detail page. Live visual status timeline, tracking info, ordered items, complete payment breakdown, delivery address, and review prompts for delivered orders.",
+    overview:"Two-column layout: wide left column for status timeline, tracking, and item list; narrower right column for payment summary, delivery address, and review prompts. Page header shows order reference (monospace), date, fulfillment type, status badge, and Download Invoice button. SSE pushes status updates live — the timeline animates to the new step without a refresh.",
+    sections:[
+      {num:"01",name:"Page Header",description:"Full-width header below nav. Breadcrumb, order reference, date+type sub-label, status badge, Download Invoice button.",components:["Breadcrumb — 'Home › My Orders › Order Detail'","Order reference — monospace H2 (e.g. 'ORD-20260317-A3F8K2QZ')","Sub-label — 'Placed on 17 March 2026 · Delivery Order'","Status badge — colour-coded (same palette as My Orders)","'Download Invoice' primary button right-aligned","'← Back to My Orders' info link in nav bar"]},
+      {num:"02",name:"Order Status Timeline",description:"Vertical dot-and-bar timeline. Done steps: success dot ✓ + success bar. Active step: info dot ● + info text + estimated date. Upcoming: grey dot ○ + tertiary text + '—'.",components:["StatusStep × 5 — Order Placed, Payment Confirmed, Order Packed, Out for Delivery, Delivered","Done — success dot (✓), success vertical bar to next step","Active — info dot (●), info text, estimated date if admin set it","Upcoming — grey dot (○), tertiary text, date '—'","SSE annotation: 'Live SSE updates this timeline when admin changes status'"]},
+      {num:"03",name:"Tracking Section",description:"Secondary-bg card. Tracking number in monospace. Tracking URL link appears when admin sets it.",components:["'Tracking Number' label + monospace value","'No external link set yet' italics → replaced by '🔗 Track Package' link when tracking_url is set"]},
+      {num:"04",name:"Order Items List",description:"Each item: 52×52px thumbnail, name, variant+qty, unit price, line total.",components:["OrderItem row × N — thumbnail, name bold, 'variant · Qty: N', 'Unit price: ₦X', line total right-aligned","Rows separated by border-bottom divider"]},
+      {num:"05",name:"Payment Summary",description:"Right column top. Full price breakdown + payment provider + transaction ID.",components:["Subtotal, Coupon (success green if applied), Shipping, Divider, 'Total Paid' bold","Payment provider row (Stripe/PayPal/Paystack)","Transaction ID — truncated monospace (e.g. 'pi_3P...xQZ2')"]},
+      {num:"06",name:"Delivery Address",description:"Right column below payment summary. Delivery address used for this order.",components:["Buyer full name bold, street, city+state, country"]},
+      {num:"07",name:"Write Review (DELIVERED orders only)",description:"Right column, visible only when status=DELIVERED. Each item has a 'Review' button navigating to the Write Review page.",components:["'Rate your purchase:' label","Item row × N — product name + 'Review' info-bordered button","'← Back to Orders' secondary full-width button at bottom"]}
+    ],
+    states:[
+      "Order in progress: timeline shows completed steps green, active step info blue, upcoming grey",
+      "Order Delivered: all steps green; Write Review section visible",
+      "Tracking URL set: 'No external link set yet' → '🔗 Track Package' link",
+      "Estimated delivery set: active step shows 'Estimated: March 20, 2026'",
+      "SSE update received: timeline animates to next step; toast notification appears",
+      "Pickup order: Delivery Address section shows Pickup Location details instead"
+    ],
+    dataRequirements:[
+      "GET /api/orders/:id — full order: items, variants, totals, address/pickup, tracking_number, tracking_url, estimated_delivery, status, transaction details",
+      "GET /api/orders/:id/invoice — PDF for Download Invoice",
+      "SSE /api/events — order.status_updated with order_id to animate timeline"
+    ],
+    designNotes:[
+      "Timeline vertical bar between done→active: success colour; active→upcoming: tertiary colour",
+      "SSE dot animation: grey → success with brief scale pulse (1 → 1.2 → 1)",
+      "Tracking number should have a clipboard copy button",
+      "order_id in URL should be the public reference string, not a database UUID",
+      "'Write Review' section must be completely absent from the DOM when status is not DELIVERED"
+    ]
   }
 };
 
@@ -2146,18 +2540,1440 @@ function WireframeComparison(){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: LOGIN PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeLogin(){
+  const purple=LC.A; // Auth lane colour
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",minHeight:560}}>
+
+        {/* LEFT BRAND PANEL */}
+        <div style={{background:T.bg2,padding:"40px 36px",display:"flex",flexDirection:"column",
+          justifyContent:"center",borderRight:`1px solid ${T.border1}`}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:20,fontWeight:600,fontFamily:T.mono}}>01 — Brand Panel (left column)</div>
+          <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:8}}>WillOfGod</div>
+          <div style={{fontSize:13,color:T.text1,marginBottom:24,lineHeight:1.7,maxWidth:260}}>
+            Welcome back. Sign in to access your orders, wishlist and exclusive deals.
+          </div>
+          <WfImg height={164} label="Brand Illustration" style={{borderRadius:T.r.lg,marginBottom:24}}/>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {["Access your orders & tracking","Manage your wishlists","Exclusive member deals","Faster checkout"].map((f,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:18,height:18,borderRadius:"50%",background:T.greenLight,
+                  border:`1px solid #86EFAC`,display:"flex",alignItems:"center",
+                  justifyContent:"center",flexShrink:0}}>
+                  <span style={{fontSize:9,color:T.green,fontWeight:700}}>✓</span>
+                </div>
+                <span style={{fontSize:11,color:T.text1}}>{f}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT FORM PANEL */}
+        <div style={{padding:"36px 36px",display:"flex",flexDirection:"column",justifyContent:"center",background:T.bg0}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:20,fontWeight:600,fontFamily:T.mono}}>02 — Login Form</div>
+          <div style={{fontSize:20,fontWeight:700,color:T.text0,marginBottom:4}}>Sign in</div>
+          <div style={{fontSize:11,color:T.text2,marginBottom:20}}>
+            No account?{" "}<span style={{color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Create one — it's free</span>
+          </div>
+
+          {/* Google button */}
+          <div style={{fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,
+            marginBottom:10,fontWeight:600,fontFamily:T.mono}}>Google OAuth</div>
+          <div style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"10px",
+            fontSize:11,cursor:"pointer",background:T.bg0,color:T.text0,
+            display:"flex",alignItems:"center",justifyContent:"center",gap:9,marginBottom:8}}>
+            <div style={{width:16,height:16,borderRadius:"50%",background:T.bg3,border:`1px solid ${T.border0}`,flexShrink:0}}/>
+            Continue with Google
+          </div>
+          <div style={{fontSize:9,color:T.text3,borderLeft:`2px solid ${T.border0}`,paddingLeft:7,
+            marginBottom:14,fontStyle:"italic",lineHeight:1.6}}>
+            Google OAuth · ID token verified server-side · New users auto-registered with is_verified=true
+          </div>
+
+          {/* Divider */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+            <div style={{flex:1,height:1,background:T.border2}}/>
+            <span style={{fontSize:10,color:T.text3}}>or sign in with email</span>
+            <div style={{flex:1,height:1,background:T.border2}}/>
+          </div>
+
+          {/* Email field */}
+          <div style={{fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",color:T.text3,
+            marginBottom:10,fontWeight:600,fontFamily:T.mono}}>Email + Password Form</div>
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Email address</label>
+          <input readOnly placeholder="you@example.com" type="email" style={{
+            width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"8px 10px",fontSize:11,background:T.bg0,marginBottom:12,fontFamily:T.font}}/>
+
+          {/* Password field — error state */}
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Password</label>
+          <div style={{position:"relative",marginBottom:6}}>
+            <input readOnly placeholder="Enter your password" type="password" style={{
+              width:"100%",border:`1px solid ${T.red}`,borderRadius:T.r.md,
+              padding:"8px 36px 8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+            <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",
+              fontSize:12,color:T.text3,cursor:"pointer"}}>👁</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:T.red,marginBottom:12}}>
+            <div style={{width:13,height:13,borderRadius:"50%",background:T.redLight,
+              border:`1px solid #FECACA`,display:"flex",alignItems:"center",
+              justifyContent:"center",flexShrink:0}}>
+              <span style={{fontSize:8,color:T.red,fontWeight:700}}>!</span>
+            </div>
+            Incorrect email or password.{" "}
+            <span style={{color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Forgot password?</span>
+          </div>
+
+          {/* Remember me + forgot */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>
+              <input type="checkbox" readOnly style={{width:12,height:12}}/>
+              <span style={{fontSize:10,color:T.text1}}>Remember me</span>
+            </label>
+            <span style={{fontSize:10,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Forgot password?</span>
+          </div>
+
+          <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"10px 0",fontSize:12,marginBottom:8}}>Sign In</WfBtn>
+          <div style={{fontSize:9,color:T.text3,borderLeft:`2px solid ${T.border0}`,paddingLeft:7,
+            marginBottom:14,fontStyle:"italic",lineHeight:1.6}}>
+            Rate limited to 5 attempts per 15 min per IP · Anonymous browsing history merged on login
+          </div>
+          <div style={{height:1,background:T.border2,marginBottom:14}}/>
+          <div style={{textAlign:"center",fontSize:10,color:T.text2}}>
+            Don't have an account?{" "}<span style={{color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Create account</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: SIGN UP PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeSignUp(){
+  const steps=[
+    {num:"01",title:"Personal Details",sub:"Name, email, password",active:true},
+    {num:"02",title:"Your Country",sub:"Where are you based?",active:false},
+    {num:"03",title:"Verify Email",sub:"Confirm your address",active:false},
+  ];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1.2fr",minHeight:620}}>
+
+        {/* LEFT */}
+        <div style={{background:T.bg2,padding:"40px 36px",display:"flex",flexDirection:"column",
+          justifyContent:"center",borderRight:`1px solid ${T.border1}`}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:20,fontWeight:600,fontFamily:T.mono}}>01 — Brand Panel</div>
+          <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:8}}>WillOfGod</div>
+          <div style={{fontSize:13,color:T.text1,marginBottom:20,lineHeight:1.7,maxWidth:260}}>
+            Join thousands of shoppers. Get access to exclusive deals, order tracking and your personal wishlist.
+          </div>
+          <WfImg height={140} label="Signup Illustration" style={{borderRadius:T.r.lg,marginBottom:24}}/>
+
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:14,fontWeight:600,fontFamily:T.mono}}>Step Indicator</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {steps.map(({num,title,sub,active})=>(
+              <div key={num} style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                <div style={{width:26,height:26,borderRadius:"50%",flexShrink:0,
+                  background:active?T.blueLight:T.bg3,
+                  border:`1px solid ${active?T.blueBorder:T.border0}`,
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <span style={{fontSize:9,fontWeight:600,color:active?T.blueText:T.text3}}>{num}</span>
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:active?600:400,color:active?T.text0:T.text3}}>{title}</div>
+                  <div style={{fontSize:9,color:T.text3,marginTop:1}}>{sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT FORM */}
+        <div style={{padding:"32px 36px",display:"flex",flexDirection:"column",justifyContent:"flex-start",
+          overflowY:"auto",background:T.bg0}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:16,fontWeight:600,fontFamily:T.mono}}>02 — Step 1: Personal Details</div>
+          <div style={{fontSize:20,fontWeight:700,color:T.text0,marginBottom:4}}>Create account</div>
+          <div style={{fontSize:11,color:T.text2,marginBottom:16}}>
+            Already have one?{" "}<span style={{color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Sign in</span>
+          </div>
+
+          <div style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"9px",
+            fontSize:11,background:T.bg0,color:T.text0,display:"flex",alignItems:"center",
+            justifyContent:"center",gap:9,marginBottom:10,cursor:"pointer"}}>
+            <div style={{width:16,height:16,borderRadius:"50%",background:T.bg3,border:`1px solid ${T.border0}`}}/>
+            Sign up with Google
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+            <div style={{flex:1,height:1,background:T.border2}}/>
+            <span style={{fontSize:10,color:T.text3}}>or sign up with email</span>
+            <div style={{flex:1,height:1,background:T.border2}}/>
+          </div>
+
+          {/* Full name — success state */}
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Full name</label>
+          <input readOnly value="John Adebayo" style={{width:"100%",border:`1px solid ${T.green}`,
+            borderRadius:T.r.md,padding:"8px 10px",fontSize:11,background:T.bg0,
+            marginBottom:4,fontFamily:T.font,color:T.text0}}/>
+          <div style={{fontSize:9,color:T.green,marginBottom:10}}>✓ Looks good</div>
+
+          {/* Email — success state */}
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Email address</label>
+          <input readOnly value="john@email.com" style={{width:"100%",border:`1px solid ${T.green}`,
+            borderRadius:T.r.md,padding:"8px 10px",fontSize:11,background:T.bg0,
+            marginBottom:4,fontFamily:T.font,color:T.text0}}/>
+          <div style={{fontSize:9,color:T.green,marginBottom:10}}>✓ Available</div>
+
+          {/* Password + strength */}
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Password</label>
+          <div style={{position:"relative",marginBottom:7}}>
+            <input readOnly placeholder="Create a strong password" type="password" style={{
+              width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+              padding:"8px 36px 8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+            <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",
+              fontSize:12,color:T.text3,cursor:"pointer"}}>👁</span>
+          </div>
+          {/* 4-segment strength bar — medium */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:3,marginBottom:5}}>
+            {[T.green,T.green,"#F59E0B",T.bg3].map((c,i)=>(
+              <div key={i} style={{height:3,background:c,borderRadius:99}}/>
+            ))}
+          </div>
+          <div style={{fontSize:9,color:"#B45309",marginBottom:12}}>Medium strength — add a special character</div>
+
+          {/* Confirm password */}
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Confirm password</label>
+          <input readOnly placeholder="Repeat your password" type="password" style={{
+            width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"8px 10px",fontSize:11,background:T.bg0,marginBottom:14,fontFamily:T.font}}/>
+
+          {/* Step 2 — country */}
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            marginBottom:12,fontWeight:600,fontFamily:T.mono}}>03 — Step 2: Country Selection (inline)</div>
+          <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Your country</label>
+          <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"8px 10px",fontSize:11,background:T.bg0,marginBottom:4,fontFamily:T.font,
+            cursor:"pointer",color:T.text0}}>
+            <option>Nigeria</option>
+            <option>Ghana</option>
+            <option>South Africa</option>
+            <option>Kenya</option>
+          </select>
+          <div style={{fontSize:9,color:T.text3,borderLeft:`2px solid ${T.border0}`,paddingLeft:7,
+            marginBottom:14,fontStyle:"italic",lineHeight:1.6}}>
+            Country stored on user profile · Affects currency display · Can be updated later in Profile Settings
+          </div>
+
+          {/* Terms checkbox */}
+          <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",marginBottom:16}}>
+            <input type="checkbox" readOnly style={{width:12,height:12,marginTop:2,flexShrink:0}}/>
+            <span style={{fontSize:10,color:T.text1,lineHeight:1.6}}>
+              I agree to the{" "}
+              <span style={{color:T.blueText,textDecoration:"underline"}}>Terms & Conditions</span>{" "}and{" "}
+              <span style={{color:T.blueText,textDecoration:"underline"}}>Privacy Policy</span>
+            </span>
+          </label>
+
+          <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"10px 0",fontSize:12,marginBottom:6}}>Create Account</WfBtn>
+          <div style={{fontSize:9,color:T.text3,borderLeft:`2px solid ${T.border0}`,paddingLeft:7,
+            marginBottom:12,fontStyle:"italic",lineHeight:1.6}}>
+            On submit: account created with is_verified=false · Verification + welcome emails dispatched
+          </div>
+          <div style={{textAlign:"center",fontSize:10,color:T.text2}}>
+            Already have an account?{" "}<span style={{color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Sign in instead</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: EMAIL VERIFICATION
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeEmailVerification(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Minimal nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.text0}}>WillOfGod</div>
+      </div>
+
+      <div style={{maxWidth:480,margin:"0 auto",padding:"40px 24px"}}>
+
+        {/* STATE 01 — Check email */}
+        <WfSection num="01" label="Check Email State (shown immediately after signup)">
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{width:64,height:64,borderRadius:"50%",background:T.blueLight,
+              border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 16px",fontSize:26,color:T.blueText}}>✉</div>
+            <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:7}}>Check your email</div>
+            <div style={{fontSize:11,color:T.text1,lineHeight:1.75,marginBottom:20}}>
+              We sent a verification link to{" "}
+              <strong style={{color:T.text0}}>john@email.com</strong>. Click the link in the email to verify your account.
+            </div>
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+              padding:16,marginBottom:14,textAlign:"left"}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Didn't get the email?</div>
+              <div style={{fontSize:10,color:T.text1,marginBottom:12,lineHeight:1.6}}>
+                Check your spam folder. The link expires in 24 hours.
+              </div>
+              <WfBtn style={{width:"100%",justifyContent:"center",fontSize:10}}>Resend Verification Email</WfBtn>
+            </div>
+            <WfAnnot>Resend generates new token · stores new Redis key (24h TTL) · sends new email · Previous token invalidated · 60s cooldown between resends</WfAnnot>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* STATE 02 — Success */}
+        <WfSection num="02" label="Verification Success State (after clicking the email link — token valid)">
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{width:64,height:64,borderRadius:"50%",background:T.greenLight,
+              border:`1px solid #86EFAC`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 16px",fontSize:28,color:T.green}}>✓</div>
+            <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:7}}>Email verified!</div>
+            <div style={{fontSize:11,color:T.text1,lineHeight:1.75,marginBottom:16}}>
+              Your account is now active. You can start shopping.
+            </div>
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,
+              padding:"10px 20px",display:"inline-block",marginBottom:16}}>
+              <div style={{fontSize:10,color:T.text2,marginBottom:3}}>Redirecting to login in…</div>
+              <div style={{fontSize:24,fontWeight:700,color:T.text0,fontFamily:T.mono}}>3</div>
+            </div>
+            <br/>
+            <WfBtn primary style={{padding:"9px 28px",fontSize:11}}>Go to Login Now</WfBtn>
+            <WfAnnot>Auto-redirect to login after 3s · is_verified=true set on user record · Redis key deleted</WfAnnot>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* STATE 03 — Failed */}
+        <WfSection num="03" label="Verification Failed State (expired or invalid token)">
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{width:64,height:64,borderRadius:"50%",background:T.redLight,
+              border:`1px solid #FECACA`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 16px",fontSize:26,color:T.red}}>✕</div>
+            <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:7}}>Link expired or invalid</div>
+            <div style={{fontSize:11,color:T.text1,lineHeight:1.75,marginBottom:18}}>
+              This verification link has expired or already been used. Request a new one below.
+            </div>
+            <WfBtn primary style={{padding:"9px 28px",fontSize:11,marginBottom:10}}>Send New Verification Email</WfBtn>
+            <br/>
+            <span style={{fontSize:10,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>Back to Login</span>
+          </div>
+        </WfSection>
+
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: FORGOT PASSWORD
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeForgotPassword(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Minimal nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.text0}}>WillOfGod</div>
+        <span style={{marginLeft:"auto",fontSize:10,color:T.blueText,
+          textDecoration:"underline",cursor:"pointer"}}>← Back to Login</span>
+      </div>
+
+      <div style={{maxWidth:420,margin:"0 auto",padding:"40px 24px"}}>
+
+        {/* FORM STATE */}
+        <WfSection num="01" label="Enter Email Form">
+          <div style={{padding:"24px 0"}}>
+            <div style={{textAlign:"center",marginBottom:26}}>
+              <div style={{width:58,height:58,borderRadius:"50%",background:"#FFFBEB",
+                border:`1px solid #FDE68A`,display:"flex",alignItems:"center",
+                justifyContent:"center",margin:"0 auto 14px",fontSize:24}}>🔑</div>
+              <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:7}}>Forgot your password?</div>
+              <div style={{fontSize:11,color:T.text1,lineHeight:1.75}}>
+                Enter your email address and we'll send you a reset link. The link expires in 1 hour.
+              </div>
+            </div>
+            <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Email address</label>
+            <input readOnly placeholder="you@example.com" type="email" style={{
+              width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+              padding:"9px 10px",fontSize:11,background:T.bg0,marginBottom:14,fontFamily:T.font}}/>
+            <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"10px 0",fontSize:12,marginBottom:12}}>
+              Send Reset Link
+            </WfBtn>
+            <div style={{textAlign:"center"}}>
+              <span style={{fontSize:10,color:T.blueText,textDecoration:"underline",cursor:"pointer"}}>← Back to Login</span>
+            </div>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* SUCCESS STATE */}
+        <WfSection num="02" label="Success State (always shown — identical whether email exists or not)">
+          <div style={{padding:"16px 0"}}>
+            <div style={{background:T.greenLight,border:`1px solid #86EFAC`,
+              borderRadius:T.r.lg,padding:18,textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:8,color:T.green}}>✉</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.green,marginBottom:5}}>Reset link sent</div>
+              <div style={{fontSize:10,color:T.green,lineHeight:1.65,opacity:0.9}}>
+                If that email exists in our system, a reset link has been sent. Check your inbox and spam folder.
+              </div>
+            </div>
+            <WfAnnot>Response is identical whether email exists or not — prevents user enumeration attack · Redis key set with 1h TTL only if user actually exists in DB</WfAnnot>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* RATE LIMIT STATE */}
+        <WfSection num="03" label="Rate Limit State (too many requests within 15-minute window)">
+          <div style={{padding:"16px 0"}}>
+            <div style={{background:T.redLight,border:`1px solid #FECACA`,
+              borderRadius:T.r.lg,padding:16}}>
+              <div style={{fontSize:12,fontWeight:700,color:T.red,marginBottom:5}}>Too many requests</div>
+              <div style={{fontSize:10,color:T.red,lineHeight:1.6,opacity:0.9}}>
+                You've made too many reset requests. Please wait 15 minutes before trying again.
+              </div>
+            </div>
+          </div>
+        </WfSection>
+
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: RESET PASSWORD
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeResetPassword(){
+  const reqs=[
+    {label:"At least 8 characters",met:true},
+    {label:"Uppercase letter (A–Z)",met:true},
+    {label:"Lowercase letter (a–z)",met:true},
+    {label:"Number (0–9)",met:true},
+    {label:"Special character (!@#$…)",met:false},
+  ];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Minimal nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.text0}}>WillOfGod</div>
+      </div>
+
+      <div style={{maxWidth:420,margin:"0 auto",padding:"40px 24px"}}>
+
+        {/* FORM STATE */}
+        <WfSection num="01" label="Reset Password Form (token valid — reached via email link)">
+          <div style={{padding:"24px 0"}}>
+            <div style={{textAlign:"center",marginBottom:24}}>
+              <div style={{width:58,height:58,borderRadius:"50%",background:T.blueLight,
+                border:`1px solid ${T.blueBorder}`,display:"flex",alignItems:"center",
+                justifyContent:"center",margin:"0 auto 14px",fontSize:22}}>🔒</div>
+              <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:6}}>Reset your password</div>
+              <div style={{fontSize:11,color:T.text1}}>
+                Choose a strong new password for <strong>jo***@email.com</strong>
+              </div>
+            </div>
+
+            {/* New password — success/strong */}
+            <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>New password</label>
+            <div style={{position:"relative",marginBottom:6}}>
+              <input readOnly placeholder="Create a new password" type="password" style={{
+                width:"100%",border:`1px solid ${T.green}`,borderRadius:T.r.md,
+                padding:"9px 36px 9px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+              <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",
+                fontSize:12,color:T.text3,cursor:"pointer"}}>👁</span>
+            </div>
+            {/* All-green strength bar */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:3,marginBottom:5}}>
+              {[T.green,T.green,T.green,T.green].map((c,i)=>(
+                <div key={i} style={{height:3,background:c,borderRadius:99}}/>
+              ))}
+            </div>
+            <div style={{fontSize:9,color:T.green,marginBottom:14}}>Strong password ✓</div>
+
+            {/* Confirm password — match state */}
+            <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Confirm new password</label>
+            <div style={{position:"relative",marginBottom:5}}>
+              <input readOnly placeholder="Repeat new password" type="password" style={{
+                width:"100%",border:`1px solid ${T.green}`,borderRadius:T.r.md,
+                padding:"9px 36px 9px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+              <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",
+                fontSize:12,color:T.text3,cursor:"pointer"}}>👁</span>
+            </div>
+            <div style={{fontSize:9,color:T.green,marginBottom:16}}>✓ Passwords match</div>
+
+            {/* Requirements checklist */}
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,
+              padding:"12px 14px",marginBottom:18}}>
+              <div style={{fontSize:9,fontWeight:600,color:T.text1,marginBottom:9,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                Password requirements:
+              </div>
+              {reqs.map(({label,met},i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
+                  <span style={{fontSize:10,color:met?T.green:T.red,fontWeight:700,flexShrink:0}}>{met?"✓":"✕"}</span>
+                  <span style={{fontSize:10,color:met?T.green:T.red}}>{label}</span>
+                </div>
+              ))}
+            </div>
+
+            <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"10px 0",fontSize:12,marginBottom:8}}>
+              Reset Password
+            </WfBtn>
+            <WfAnnot>On success: password_hash updated · all sessions invalidated · confirmation email sent · redirect to login</WfAnnot>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* SUCCESS STATE */}
+        <WfSection num="02" label="Success State">
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{width:58,height:58,borderRadius:"50%",background:T.greenLight,
+              border:`1px solid #86EFAC`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 14px",fontSize:24,color:T.green}}>✓</div>
+            <div style={{fontSize:17,fontWeight:700,color:T.text0,marginBottom:7}}>Password updated!</div>
+            <div style={{fontSize:10,color:T.text1,lineHeight:1.7,marginBottom:18,maxWidth:300,margin:"0 auto 18px"}}>
+              All your active sessions have been signed out for security. Please sign in with your new password.
+            </div>
+            <WfBtn primary style={{padding:"9px 28px",fontSize:11}}>Go to Login</WfBtn>
+          </div>
+        </WfSection>
+
+        <div style={{height:1,background:T.border1,margin:"8px 0"}}/>
+
+        {/* EXPIRED TOKEN STATE */}
+        <WfSection num="03" label="Expired Token State (link expired or already used)">
+          <div style={{padding:"24px 0",textAlign:"center"}}>
+            <div style={{width:58,height:58,borderRadius:"50%",background:T.redLight,
+              border:`1px solid #FECACA`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 14px",fontSize:22,color:T.red}}>✕</div>
+            <div style={{fontSize:17,fontWeight:700,color:T.text0,marginBottom:7}}>Reset link expired</div>
+            <div style={{fontSize:10,color:T.text1,lineHeight:1.7,marginBottom:18,maxWidth:300,margin:"0 auto 18px"}}>
+              This reset link has expired or already been used. Password reset links are valid for 1 hour.
+            </div>
+            <div style={{display:"flex",gap:9,justifyContent:"center"}}>
+              <WfBtn primary style={{padding:"9px 22px",fontSize:11}}>Request New Link</WfBtn>
+              <WfBtn style={{padding:"9px 22px",fontSize:11}}>Back to Login</WfBtn>
+            </div>
+          </div>
+        </WfSection>
+
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: MAINTENANCE PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeMaintenance(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Minimal branded nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.text0}}>WillOfGod</div>
+        <div style={{marginLeft:"auto",background:"#FFFBEB",border:"1px solid #FDE68A",
+          color:"#B45309",fontSize:9,padding:"2px 10px",borderRadius:T.r.full,fontWeight:600}}>
+          Maintenance Mode
+        </div>
+      </div>
+
+      {/* MAIN SCREEN */}
+      <WfSection num="01" label="Main Maintenance Screen (served to ALL visitors and buyers when maintenance_mode=true)">
+        <div style={{minHeight:380,display:"flex",flexDirection:"column",alignItems:"center",
+          justifyContent:"center",padding:"48px 24px",textAlign:"center",background:T.bg2}}>
+          {/* Gear icon */}
+          <div style={{width:80,height:80,borderRadius:"50%",background:"#FFFBEB",
+            border:"1px solid #FDE68A",display:"flex",alignItems:"center",
+            justifyContent:"center",marginBottom:20,fontSize:34}}>⚙</div>
+          <div style={{fontSize:24,fontWeight:700,color:T.text0,marginBottom:8}}>We'll be back soon</div>
+          <div style={{fontSize:13,color:T.text1,maxWidth:420,lineHeight:1.75,marginBottom:24}}>
+            We're performing scheduled maintenance to improve your experience. We apologise for the inconvenience.
+          </div>
+
+          {/* Estimated completion card */}
+          <div style={{background:T.bg0,border:`1px solid ${T.border0}`,borderRadius:T.r.lg,
+            padding:"16px 32px",marginBottom:22,minWidth:260}}>
+            <div style={{fontSize:9,color:T.text3,marginBottom:6,letterSpacing:"0.08em",
+              textTransform:"uppercase",fontWeight:600}}>Estimated completion</div>
+            <div style={{fontSize:18,fontWeight:700,color:T.text0}}>Today at 3:00 PM WAT</div>
+            <div style={{fontSize:10,color:T.text3,marginTop:4}}>Set by admin in site settings</div>
+          </div>
+
+          {/* Task pills */}
+          <div style={{display:"flex",gap:8,marginBottom:26,flexWrap:"wrap",justifyContent:"center"}}>
+            {["◻ Upgrading database","◻ Deploying new features","◻ Performance optimisation"].map(t=>(
+              <div key={t} style={{display:"flex",alignItems:"center",gap:5,background:T.bg0,
+                border:`1px solid ${T.border1}`,borderRadius:T.r.md,padding:"6px 12px"}}>
+                <span style={{fontSize:10,color:T.text2}}>{t}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Notify me */}
+          <div style={{maxWidth:340,width:"100%"}}>
+            <div style={{fontSize:11,color:T.text1,marginBottom:10}}>Get notified when we're back:</div>
+            <div style={{display:"flex",gap:8}}>
+              <input readOnly placeholder="Enter your email" style={{flex:1,border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,padding:"9px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+              <WfBtn primary style={{whiteSpace:"nowrap",padding:"9px 16px"}}>Notify Me</WfBtn>
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Middleware serves HTTP 503 with Retry-After header · Gear icon has CSS spin animation · All routes redirect here except /admin/* for role=admin · Page loads without JS bundle if possible</WfAnnot>
+      </WfSection>
+
+      {/* ADMIN ACCESS BANNER */}
+      <WfSection num="02" label="Admin Access Banner (always visible — admins can still log in during maintenance)">
+        <div style={{background:T.bg0,padding:"12px 24px",display:"flex",
+          alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <div style={{width:9,height:9,borderRadius:"50%",background:T.green,flexShrink:0}}/>
+            <span style={{fontSize:11,color:T.text1}}>Admin access is available during maintenance</span>
+          </div>
+          <WfBtn primary style={{padding:"6px 16px",fontSize:10,whiteSpace:"nowrap"}}>Admin Login →</WfBtn>
+        </div>
+        <WfAnnot>Admin Login → routes to /login · JWT role=admin bypasses maintenance middleware · Banner must remain visible at all times — position sticky or fixed</WfAnnot>
+      </WfSection>
+
+      {/* ADMIN SETTINGS FORM (reference) */}
+      <WfSection num="03" label="Admin: Maintenance Mode Toggle — in Site Settings (shown for UI/UX reference)">
+        <div style={{padding:"16px 24px"}}>
+          <div style={{maxWidth:500}}>
+            <div style={{background:T.bg0,border:`1px solid ${T.border0}`,borderRadius:T.r.lg,padding:16}}>
+              {/* Toggle row */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text0}}>Maintenance Mode</div>
+                  <div style={{fontSize:10,color:T.text2,marginTop:2}}>Blocks all visitor and buyer access to the site</div>
+                </div>
+                {/* Toggle ON (warning colour) */}
+                <div style={{width:42,height:23,background:"#FCD34D",borderRadius:99,position:"relative",cursor:"pointer"}}>
+                  <div style={{position:"absolute",right:2,top:2,width:19,height:19,background:"#fff",borderRadius:"50%",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+                </div>
+              </div>
+              <div style={{height:1,background:T.border2,marginBottom:14}}/>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                Maintenance message (shown to visitors)
+              </label>
+              <textarea readOnly style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:10,background:T.bg0,height:58,resize:"none",
+                fontFamily:T.font,marginBottom:12,color:T.text1}}>
+                We're performing scheduled maintenance to improve your experience...
+              </textarea>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                Estimated completion time
+              </label>
+              <input readOnly type="datetime-local" defaultValue="2026-03-17T15:00" style={{
+                width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:10,background:T.bg0,marginBottom:14,fontFamily:T.font}}/>
+              <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"9px 0",fontSize:11}}>
+                Save Maintenance Settings
+              </WfBtn>
+              <WfAnnot>Changes take effect immediately on save · No server restart required · Redis maintenance_mode cache invalidated on save</WfAnnot>
+            </div>
+          </div>
+        </div>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: CART PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeCart(){
+  const items=[
+    {name:"Classic Tailored Blazer",variant:"Blue / Size M",price:"₦18,500",orig:"₦25,000",flash:true,stock:"3 left",qty:1,oos:false},
+    {name:"Slim Fit Chinos",variant:"Beige / Size 32",price:"₦12,000",orig:null,flash:false,stock:"In stock",qty:2,oos:false},
+    {name:"Leather Oxford Shoes",variant:"Black / Size 42",price:"₦22,000",orig:null,flash:false,stock:"Out of stock",qty:1,oos:true},
+  ];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+      <div style={{padding:"7px 24px",fontSize:10,color:T.text2,background:T.bg2,borderBottom:`1px solid ${T.border1}`}}>
+        Home › My Cart
+      </div>
+
+      <div style={{padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:17,fontWeight:700,color:T.text0}}>My Cart <span style={{fontSize:13,color:T.text3,fontWeight:400}}>(3 items)</span></div>
+        <button style={{fontSize:10,color:T.red,background:"transparent",border:"none",cursor:"pointer"}}>Clear All</button>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px"}}>
+        {/* LEFT: Cart items */}
+        <div style={{padding:"14px 24px",borderRight:`1px solid ${T.border1}`,background:T.bg0}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:12,fontWeight:600,fontFamily:T.mono}}>
+            01 — Cart Items List
+          </div>
+          {items.map((item,i)=>(
+            <div key={i} style={{display:"flex",gap:14,padding:"14px 0",
+              borderBottom:`1px solid ${T.border1}`,opacity:item.oos?0.6:1}}>
+              <WfImg height={70} style={{width:70,flexShrink:0,borderRadius:T.r.md}}/>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:3}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.text0}}>{item.name}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text0,whiteSpace:"nowrap",marginLeft:10}}>{item.price}</div>
+                </div>
+                <div style={{fontSize:10,color:T.text3,marginBottom:5}}>{item.variant}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  {item.flash&&<span style={{background:T.redLight,color:T.red,borderRadius:T.r.sm,padding:"1px 6px",fontSize:9,fontWeight:600}}>⚡ Flash Sale</span>}
+                  {item.orig&&<span style={{fontSize:10,color:T.text3,textDecoration:"line-through"}}>{item.orig}</span>}
+                  <span style={{fontSize:10,fontWeight:500,color:item.oos?T.red:item.stock.includes("left")?"#B45309":T.green}}>
+                    {item.oos?"✕ Out of stock":"● "+item.stock}
+                  </span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  {item.oos
+                    ?<button style={{fontSize:9,color:T.red,background:"transparent",border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"3px 9px",cursor:"pointer"}}>Remove</button>
+                    :<div style={{display:"flex",alignItems:"center",border:`1px solid ${T.border0}`,borderRadius:T.r.md,overflow:"hidden"}}>
+                      <button style={{width:28,height:28,background:T.bg2,border:"none",cursor:"pointer",fontSize:16,color:T.text1}}>−</button>
+                      <span style={{width:34,textAlign:"center",fontSize:12,color:T.text0}}>{item.qty}</span>
+                      <button style={{width:28,height:28,background:T.bg2,border:"none",cursor:"pointer",fontSize:16,color:T.text1}}>+</button>
+                    </div>
+                  }
+                  <div style={{display:"flex",gap:10}}>
+                    <button style={{fontSize:9,color:T.text3,background:"transparent",border:"none",cursor:"pointer"}}>♡ Save</button>
+                    {!item.oos&&<button style={{fontSize:9,color:T.red,background:"transparent",border:"none",cursor:"pointer"}}>✕ Remove</button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <WfAnnot>Out-of-stock items flagged in red at 0.6 opacity · Quantity capped at available stock · Save moves item to wishlist · Flash sale badge shows countdown if ≤1h remaining</WfAnnot>
+          <div style={{marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:10,color:T.blueText,cursor:"pointer",textDecoration:"underline"}}>← Continue Shopping</span>
+            <span style={{fontSize:10,color:T.red}}>Remove out-of-stock items to proceed</span>
+          </div>
+        </div>
+
+        {/* RIGHT: Summary + coupon */}
+        <div style={{padding:16,background:T.bg1}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:12,fontWeight:600,fontFamily:T.mono}}>
+            02 — Order Summary
+          </div>
+          <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.text1,marginBottom:7}}>
+              <span>Subtotal (2 items)</span><span style={{fontWeight:600,color:T.text0}}>₦42,500</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.green,marginBottom:7}}>
+              <span>Discount</span><span>−₦6,500</span>
+            </div>
+            <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,color:T.text0,marginBottom:5}}>
+              <span>Total</span><span>₦36,000</span>
+            </div>
+            <div style={{fontSize:9,color:T.text3}}>Shipping calculated at checkout</div>
+          </div>
+
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:10,fontWeight:600,fontFamily:T.mono}}>
+            03 — Coupon Code
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <input readOnly placeholder="Enter coupon code" style={{flex:1,border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+            <WfBtn primary style={{whiteSpace:"nowrap",fontSize:10,padding:"7px 12px"}}>Apply</WfBtn>
+          </div>
+          {/* Coupon applied success state */}
+          <div style={{background:T.greenLight,border:`1px solid #86EFAC`,borderRadius:T.r.md,padding:"8px 12px",
+            display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:600,color:T.green}}>SAVE20 applied</div>
+              <div style={{fontSize:9,color:T.green}}>20% off — you save ₦6,500</div>
+            </div>
+            <span style={{fontSize:13,color:T.green,cursor:"pointer"}}>×</span>
+          </div>
+          <WfAnnot>validateCoupon API called in real-time · Specific errors: Expired / Usage limit reached / Minimum order not met</WfAnnot>
+
+          <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"11px 0",fontSize:13,marginTop:8,marginBottom:10}}>
+            Proceed to Checkout →
+          </WfBtn>
+          <div style={{display:"flex",justifyContent:"center",gap:7}}>
+            {["Stripe","PayPal","Paystack"].map(p=><WfTag key={p}>{p}</WfTag>)}
+          </div>
+
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",margin:"14px 0 10px",fontWeight:600,fontFamily:T.mono}}>
+            04 — You May Also Like
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {[1,2].map(i=>(
+              <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.md,overflow:"hidden"}}>
+                <WfImg height={60} style={{borderRadius:0}}/>
+                <div style={{padding:"5px 8px"}}>
+                  <WfLine w="80%" h={10} mb={3}/>
+                  <WfLine w="50%" h={7} mb={0}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: CHECKOUT PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeCheckout(){
+  const StepBar=({steps})=>(
+    <div style={{display:"flex",alignItems:"flex-start",padding:"14px 24px",borderBottom:`1px solid ${T.border1}`}}>
+      {steps.map(([label,state],i)=>(
+        <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:i<steps.length-1?1:0,gap:4}}>
+          <div style={{display:"flex",alignItems:"center",width:"100%"}}>
+            <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,margin:"0 auto",
+              background:state==="done"?T.greenLight:state==="active"?T.blueLight:T.bg3,
+              border:`1px solid ${state==="done"?"#86EFAC":state==="active"?T.blueBorder:T.border0}`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,
+              color:state==="done"?T.green:state==="active"?T.blueText:T.text3}}>
+              {state==="done"?"✓":i+1}
+            </div>
+            {i<steps.length-1&&<div style={{flex:1,height:2,background:state==="done"?"#86EFAC":T.border2}}/>}
+          </div>
+          <div style={{fontSize:9,whiteSpace:"nowrap",
+            color:state==="active"?T.blueText:state==="done"?T.green:T.text3}}>{label}</div>
+        </div>
+      ))}
+    </div>
+  );
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Stripped nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",background:T.bg0,borderBottom:`1px solid ${T.border1}`}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>WillOfGod</div>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:10,color:T.text3}}>🔒 Secure Checkout</span>
+      </div>
+
+      <WfSection num="01" label="Checkout Progress Steps">
+        <StepBar steps={[["Cart","done"],["Checkout","active"],["Payment","upcoming"],["Confirmation","upcoming"]]}/>
+      </WfSection>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px"}}>
+        {/* LEFT */}
+        <div style={{padding:"16px 24px",borderRight:`1px solid ${T.border1}`,background:T.bg0}}>
+          <WfSection num="02" label="Fulfillment Type Toggle">
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"14px 0 10px"}}>
+              {[{icon:"🚚",label:"Delivery",sub:"Ship to your address",active:true},{icon:"🏪",label:"Pickup",sub:"Collect from our store",active:false}].map(({icon,label,sub,active})=>(
+                <div key={label} style={{border:`${active?"1.5px":"1px"} solid ${active?T.blueBorder:T.border0}`,
+                  background:active?T.blueLight:"transparent",borderRadius:T.r.lg,padding:14,cursor:"pointer"}}>
+                  <div style={{fontSize:18,marginBottom:4}}>{icon}</div>
+                  <div style={{fontSize:12,fontWeight:600,color:active?T.blueText:T.text0}}>{label}</div>
+                  <div style={{fontSize:10,color:active?T.blueText:T.text3}}>{sub}</div>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          <WfSection num="03" label="Delivery: Address Selection">
+            <div style={{padding:"12px 0"}}>
+              {[{label:"Home",addr:"12 Marina Street, Lagos Island, Lagos",def:true},{label:"Office",addr:"45 Victoria Island Boulevard, VI, Lagos",def:false}].map(({label,addr,def},i)=>(
+                <div key={i} style={{display:"flex",alignItems:"flex-start",gap:9,
+                  border:`${i===0?"1.5px":"1px"} solid ${i===0?T.blueBorder:T.border0}`,
+                  background:i===0?T.blueLight:"transparent",borderRadius:T.r.lg,
+                  padding:11,marginBottom:8,cursor:"pointer"}}>
+                  <input type="radio" defaultChecked={i===0} readOnly style={{marginTop:2,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+                      <span style={{fontSize:12,fontWeight:600,color:i===0?T.blueText:T.text0}}>{label}</span>
+                      {def&&<span style={{fontSize:8,background:T.greenLight,color:T.green,borderRadius:T.r.full,padding:"1px 6px",fontWeight:600}}>Default</span>}
+                    </div>
+                    <div style={{fontSize:10,color:T.text2}}>{addr}</div>
+                  </div>
+                </div>
+              ))}
+              <button style={{fontSize:10,color:T.blueText,background:"transparent",
+                border:`1px dashed ${T.blueBorder}`,borderRadius:T.r.md,padding:"8px 14px",cursor:"pointer",width:"100%"}}>
+                + Add New Address
+              </button>
+              <WfAnnot>Addresses from user_addresses · Default pre-selected · Inline add-address form expands on click</WfAnnot>
+            </div>
+          </WfSection>
+
+          <WfSection num="04" label="Pickup Location (shown when Pickup tab selected)">
+            <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.lg,padding:12,background:T.bg2,margin:"12px 0"}}>
+              <div style={{fontSize:10,color:T.text3,textAlign:"center",marginBottom:10}}>Shown when Pickup tab is selected</div>
+              {["Victoria Island Store — 45 Akin Adesola, VI, Lagos — Mon–Sat 9am–6pm","Ikeja Branch — 12 Allen Ave, Ikeja, Lagos — Mon–Fri 8am–7pm"].map((loc,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,
+                  border:`${i===0?"1.5px":"1px"} solid ${i===0?T.blueBorder:T.border0}`,
+                  background:i===0?T.blueLight:"transparent",borderRadius:T.r.md,
+                  padding:9,marginBottom:7,cursor:"pointer"}}>
+                  <input type="radio" defaultChecked={i===0} readOnly/>
+                  <span style={{fontSize:9,color:i===0?T.blueText:T.text1,lineHeight:1.5}}>{loc}</span>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          <WfSection num="05" label="Order Notes (optional)">
+            <div style={{padding:"12px 0"}}>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                Delivery / Order Notes <span style={{fontWeight:400,color:T.text3}}>(optional)</span>
+              </label>
+              <textarea readOnly placeholder="Any special instructions for delivery or packaging…"
+                style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:10,background:T.bg0,height:58,resize:"none",fontFamily:T.font}}/>
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT: Summary + provider + CTA */}
+        <div style={{padding:16,background:T.bg1}}>
+          <WfSection num="06" label="Order Summary Sidebar (read-only)">
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:12}}>
+              {[{name:"Classic Tailored Blazer",variant:"Blue / M",price:"₦18,500"},{name:"Slim Fit Chinos",variant:"Beige / 32",price:"₦24,000"}].map((item,i)=>(
+                <div key={i} style={{display:"flex",gap:8,marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${T.border2}`}}>
+                  <WfImg height={36} style={{width:36,flexShrink:0,borderRadius:T.r.sm}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{item.name}</div>
+                    <div style={{fontSize:9,color:T.text3}}>{item.variant}</div>
+                  </div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0,whiteSpace:"nowrap"}}>{item.price}</div>
+                </div>
+              ))}
+              {[["Subtotal","₦42,500",false],["Shipping","Free",true],["Coupon (SAVE20)","−₦6,500",true]].map(([l,v,green])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:5,color:green?T.green:T.text1}}>
+                  <span>{l}</span><span>{v}</span>
+                </div>
+              ))}
+              <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,color:T.text0}}>
+                <span>Total</span><span>₦36,000</span>
+              </div>
+            </div>
+          </WfSection>
+
+          <WfSection num="07" label="Payment Provider Selection">
+            <div style={{marginBottom:10,paddingTop:4}}>
+              {[["Stripe","Card (Visa / Mastercard)",true],["PayPal","PayPal balance / card",false],["Paystack","Card, Bank transfer, USSD",false]].map(([name,desc,active])=>(
+                <div key={name} style={{display:"flex",alignItems:"center",gap:9,
+                  border:`${active?"1.5px":"1px"} solid ${active?T.blueBorder:T.border0}`,
+                  background:active?T.blueLight:"transparent",borderRadius:T.r.md,
+                  padding:"9px 11px",marginBottom:7,cursor:"pointer"}}>
+                  <input type="radio" defaultChecked={active} readOnly/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:600,color:active?T.blueText:T.text0}}>{name}</div>
+                    <div style={{fontSize:9,color:active?T.blueText:T.text3}}>{desc}</div>
+                  </div>
+                  <WfImg height={20} style={{width:36,borderRadius:T.r.sm}}/>
+                </div>
+              ))}
+              <WfAnnot>Only shows admin-enabled providers · From site settings</WfAnnot>
+            </div>
+            <WfBtn primary style={{width:"100%",justifyContent:"center",padding:"11px 0",fontSize:13,marginBottom:7}}>
+              Place Order & Pay →
+            </WfBtn>
+            <div style={{fontSize:9,color:T.text3,textAlign:"center"}}>
+              By placing an order you agree to our Terms & Conditions
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: PAYMENT PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframePayment(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Stripped nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",background:T.bg0,borderBottom:`1px solid ${T.border1}`}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>WillOfGod</div>
+        <div style={{flex:1,textAlign:"center",fontSize:10,color:T.text3}}>🔒 Secure Payment — SSL Encrypted</div>
+      </div>
+
+      {/* Progress steps — Cart ✓ Checkout ✓ Payment active */}
+      <div style={{display:"flex",alignItems:"flex-start",padding:"12px 24px",borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        {[["Cart","done"],["Checkout","done"],["Payment","active"],["Confirmation","upcoming"]].map(([label,state],i,arr)=>(
+          <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:i<arr.length-1?1:0,gap:3}}>
+            <div style={{display:"flex",alignItems:"center",width:"100%"}}>
+              <div style={{width:26,height:26,borderRadius:"50%",margin:"0 auto",flexShrink:0,
+                background:state==="done"?T.greenLight:state==="active"?T.blueLight:T.bg3,
+                border:`1px solid ${state==="done"?"#86EFAC":state==="active"?T.blueBorder:T.border0}`,
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,
+                color:state==="done"?T.green:state==="active"?T.blueText:T.text3}}>
+                {state==="done"?"✓":i+1}
+              </div>
+              {i<arr.length-1&&<div style={{flex:1,height:2,background:state==="done"?"#86EFAC":T.border2}}/>}
+            </div>
+            <div style={{fontSize:9,whiteSpace:"nowrap",color:state==="active"?T.blueText:state==="done"?T.green:T.text3}}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 280px"}}>
+        {/* LEFT: Payment UI */}
+        <div style={{padding:"18px 24px",borderRight:`1px solid ${T.border1}`,background:T.bg0}}>
+
+          <WfSection num="02" label="Stripe Card Payment Form (Stripe Elements sandboxed iframe)">
+            <div style={{padding:"14px 0"}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text0,marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+                Pay with Card
+                <WfImg height={18} style={{width:34,borderRadius:T.r.sm}}/>
+                <WfImg height={18} style={{width:34,borderRadius:T.r.sm}}/>
+              </div>
+              <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.lg,padding:16,background:T.bg2}}>
+                <div style={{fontSize:9,color:T.text3,marginBottom:12,fontStyle:"italic"}}>Stripe Elements — rendered in sandboxed iframe</div>
+                <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Card number</label>
+                <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"9px 12px",background:T.bg0,marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:12,color:T.text3,fontFamily:T.mono,letterSpacing:2}}>4242  4242  4242  4242</span>
+                  <WfImg height={18} style={{width:28,borderRadius:T.r.sm}}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Expiry date</label>
+                    <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"9px 12px",background:T.bg0,fontSize:11,color:T.text3,fontFamily:T.mono}}>MM / YY</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>CVC</label>
+                    <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"9px 12px",background:T.bg0,fontSize:11,color:T.text3,fontFamily:T.mono}}>•••</div>
+                  </div>
+                </div>
+              </div>
+              <WfAnnot>Stripe Elements renders in its own sandboxed iframe — card data never touches our server · PCI DSS compliant</WfAnnot>
+            </div>
+          </WfSection>
+
+          <WfSection num="03" label="PayPal Option (shown when PayPal selected)">
+            <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.lg,padding:18,textAlign:"center",background:T.bg2,margin:"8px 0"}}>
+              <div style={{fontSize:10,color:T.text3,marginBottom:10}}>PayPal Smart Button renders here</div>
+              <div style={{background:"#003087",color:"#fff",borderRadius:T.r.md,padding:"10px 28px",display:"inline-block",fontSize:12,fontWeight:600,cursor:"pointer"}}>Pay with PayPal</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:8}}>Clicking redirects to PayPal approval page</div>
+            </div>
+          </WfSection>
+
+          <WfSection num="04" label="Paystack Option (shown when Paystack selected)">
+            <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.lg,padding:18,textAlign:"center",background:T.bg2,margin:"8px 0"}}>
+              <div style={{fontSize:10,color:T.text3,marginBottom:10}}>Supports Card, Bank Transfer, USSD</div>
+              <div style={{background:"#00C3F7",color:"#fff",borderRadius:T.r.md,padding:"10px 28px",display:"inline-block",fontSize:12,fontWeight:600,cursor:"pointer"}}>Pay ₦36,000 with Paystack</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:8}}>Redirects to Paystack hosted payment page</div>
+            </div>
+          </WfSection>
+
+          <WfSection num="05" label="Processing Overlay State (after payment initiated)">
+            <div style={{border:`1px solid ${T.blueBorder}`,borderRadius:T.r.lg,padding:18,textAlign:"center",background:T.blueLight,margin:"8px 0"}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.blueText,marginBottom:5}}>Processing your payment…</div>
+              <div style={{fontSize:10,color:T.blueText,opacity:0.8,marginBottom:12}}>Please do not close this page</div>
+              <div style={{display:"flex",justifyContent:"center",gap:5}}>
+                {[0.45,0.7,1].map((op,i)=>(
+                  <div key={i} style={{width:8,height:8,borderRadius:"50%",background:T.blueText,opacity:op}}/>
+                ))}
+              </div>
+            </div>
+            <WfAnnot>Payment button disabled during processing · Webhook handles success/failure asynchronously</WfAnnot>
+          </WfSection>
+        </div>
+
+        {/* RIGHT: Readonly summary */}
+        <div style={{padding:16,background:T.bg1}}>
+          <WfSection num="06" label="Order Summary (read-only)">
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:12}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:10}}>Order Summary</div>
+              {[["Classic Tailored Blazer","₦18,500"],["Slim Fit Chinos","₦24,000"]].map(([n,p])=>(
+                <div key={n} style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:5}}>
+                  <span style={{color:T.text1}}>{n}</span><span style={{color:T.text0,fontWeight:500}}>{p}</span>
+                </div>
+              ))}
+              <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+              {[["Subtotal","₦42,500",false],["Shipping","Free",true],["Coupon","−₦6,500",true]].map(([l,v,green])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:5,color:green?T.green:T.text1}}>
+                  <span>{l}</span><span>{v}</span>
+                </div>
+              ))}
+              <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,color:T.text0}}>
+                <span>Total</span><span>₦36,000</span>
+              </div>
+            </div>
+            <div style={{fontSize:10,color:T.text1,marginBottom:5,fontWeight:600}}>Delivering to:</div>
+            <div style={{fontSize:10,color:T.text2,lineHeight:1.6,marginBottom:14}}>12 Marina Street, Lagos Island, Lagos State</div>
+            <div style={{height:1,background:T.border2,marginBottom:12}}/>
+            {["🔒 SSL Encrypted","🔒 PCI DSS Compliant","🔒 Secure Payment Gateway"].map(t=>(
+              <div key={t} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                <span style={{fontSize:10,color:T.green}}>{t.split(" ")[0]}</span>
+                <span style={{fontSize:10,color:T.text2}}>{t.split(" ").slice(1).join(" ")}</span>
+              </div>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"12px 0"}}/>
+            <WfBtn style={{width:"100%",justifyContent:"center",fontSize:10}}>← Back to Checkout</WfBtn>
+          </WfSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ORDER CONFIRMATION
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeOrderConfirmation(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",background:T.bg0,borderBottom:`1px solid ${T.border1}`}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>WillOfGod</div>
+      </div>
+      <div style={{maxWidth:600,margin:"0 auto",padding:"36px 24px"}}>
+
+        <WfSection num="01" label="Success Header">
+          <div style={{textAlign:"center",padding:"24px 0 20px"}}>
+            <div style={{width:72,height:72,borderRadius:"50%",background:T.greenLight,
+              border:`1px solid #86EFAC`,display:"flex",alignItems:"center",
+              justifyContent:"center",margin:"0 auto 16px",fontSize:32,color:T.green}}>✓</div>
+            <div style={{fontSize:24,fontWeight:700,color:T.text0,marginBottom:7}}>Order Confirmed!</div>
+            <div style={{fontSize:12,color:T.text1,lineHeight:1.7,maxWidth:380,margin:"0 auto"}}>
+              Thank you, John. Your payment was successful and your order is being processed.
+            </div>
+          </div>
+        </WfSection>
+
+        <WfSection num="02" label="Order Reference + Tracking Number">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"16px 0"}}>
+            {[["Order Reference","ORD-20260317-A3F8K2QZ"],["Tracking Number","TRK-20260317-K7P2M9QR"]].map(([label,val])=>(
+              <div key={label} style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+                <div style={{fontSize:9,color:T.text3,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6,fontWeight:600}}>{label}</div>
+                <div style={{fontSize:11,fontWeight:600,color:T.text0,fontFamily:T.mono,wordBreak:"break-all"}}>{val}</div>
+              </div>
+            ))}
+          </div>
+          <WfAnnot>Both values should have clipboard copy icon buttons — buyers frequently need these for support queries</WfAnnot>
+        </WfSection>
+
+        <WfSection num="03" label="Order Items Summary">
+          <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,margin:"12px 0"}}>
+            {[{name:"Classic Tailored Blazer",variant:"Blue / M",qty:1,price:"₦18,500"},{name:"Slim Fit Chinos",variant:"Beige / 32",qty:2,price:"₦24,000"}].map((item,i)=>(
+              <div key={i} style={{display:"flex",gap:10,padding:"9px 0",borderBottom:`1px solid ${T.border2}`}}>
+                <WfImg height={44} style={{width:44,flexShrink:0,borderRadius:T.r.md}}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,fontWeight:600,color:T.text0}}>{item.name}</div>
+                  <div style={{fontSize:9,color:T.text3}}>{item.variant} · Qty: {item.qty}</div>
+                </div>
+                <div style={{fontSize:11,fontWeight:600,color:T.text0}}>{item.price}</div>
+              </div>
+            ))}
+            {[["Subtotal","₦42,500",false],["Discount (SAVE20)","−₦6,500",true],["Shipping","Free",true]].map(([l,v,green])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginTop:8,color:green?T.green:T.text1}}>
+                <span>{l}</span><span>{v}</span>
+              </div>
+            ))}
+            <div style={{height:1,background:T.border2,margin:"8px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:700,color:T.text0}}>
+              <span>Total Paid</span><span>₦36,000</span>
+            </div>
+          </div>
+        </WfSection>
+
+        <WfSection num="04" label="Delivery / Pickup Info">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"12px 0"}}>
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+              <div style={{fontSize:9,color:T.text3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7,fontWeight:600}}>Delivering to</div>
+              <div style={{fontSize:11,color:T.text0,lineHeight:1.65}}>12 Marina Street<br/>Lagos Island, Lagos State</div>
+            </div>
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+              <div style={{fontSize:9,color:T.text3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7,fontWeight:600}}>Estimated Delivery</div>
+              <div style={{fontSize:12,fontWeight:600,color:T.text0}}>March 20, 2026</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:3}}>Set by admin · Updates when status changes</div>
+            </div>
+          </div>
+        </WfSection>
+
+        <WfSection num="05" label="Action Buttons">
+          <div style={{padding:"14px 0"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <WfBtn primary style={{justifyContent:"center",padding:"10px 0",fontSize:12}}>Download Invoice</WfBtn>
+              <WfBtn style={{justifyContent:"center",padding:"10px 0",fontSize:12}}>View My Orders</WfBtn>
+            </div>
+            <WfBtn style={{width:"100%",justifyContent:"center",padding:"10px 0",fontSize:12}}>Continue Shopping</WfBtn>
+            <WfAnnot>Receipt email + confirmation email with PDF invoice attachment sent automatically · SSE notification pushed to buyer</WfAnnot>
+          </div>
+        </WfSection>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: MY ORDERS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeMyOrders(){
+  const orders=[
+    {ref:"ORD-20260317-A3F8K2QZ",date:"17 Mar 2026",items:2,total:"₦36,000",status:"Confirmed",type:"Delivery",bg:"#E1F5EE",col:"#085041"},
+    {ref:"ORD-20260310-B9K2M7QP",date:"10 Mar 2026",items:1,total:"₦22,000",status:"Shipped",type:"Delivery",bg:"#E6F1FB",col:"#0C447C"},
+    {ref:"ORD-20260301-C4X8N3WL",date:"01 Mar 2026",items:3,total:"₦58,500",status:"Delivered",type:"Pickup",bg:"#EAF3DE",col:"#27500A"},
+    {ref:"ORD-20260220-D7T1P6YM",date:"20 Feb 2026",items:1,total:"₦12,000",status:"Cancelled",type:"Delivery",bg:"#FCEBEB",col:"#791F1F"},
+  ];
+  const sidebarLinks=["My Orders","Profile","Addresses","Wishlists","Reviews","Saved Searches","Notifications","Notification Prefs"];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+      <div style={{display:"grid",gridTemplateColumns:"200px 1fr"}}>
+        {/* Sidebar */}
+        <div style={{borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg0}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:14,fontWeight:600,fontFamily:T.mono}}>
+            01 — Account Sidebar
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+            <div style={{width:38,height:38,borderRadius:"50%",background:T.blueLight,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.blueText}}>JA</div>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0}}>John Adebayo</div>
+              <div style={{fontSize:9,color:T.text3}}>Buyer · Lagos, NG</div>
+            </div>
+          </div>
+          {sidebarLinks.map((item,i)=>(
+            <div key={item} style={{padding:"8px 10px",borderRadius:T.r.md,marginBottom:3,
+              background:i===0?T.blueLight:"transparent",cursor:"pointer"}}>
+              <span style={{fontSize:10,color:i===0?T.blueText:T.text2,fontWeight:i===0?600:400}}>{item}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Main content */}
+        <div style={{padding:16,background:T.bg1}}>
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:12,fontWeight:600,fontFamily:T.mono}}>
+            02 — Status Filter Tabs
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+            {[["All","12",true],["Pending","2",false],["Confirmed","1",false],["Packed","1",false],["Shipped","3",false],["Delivered","4",false],["Cancelled","1",false]].map(([t,c,active])=>(
+              <button key={t} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",
+                border:`1px solid ${active?T.blueBorder:T.border0}`,
+                background:active?T.blueLight:"transparent",borderRadius:T.r.md,cursor:"pointer"}}>
+                <span style={{fontSize:10,color:active?T.blueText:T.text1}}>{t}</span>
+                <span style={{fontSize:9,background:active?T.bg0:T.bg2,color:active?T.blueText:T.text3,borderRadius:T.r.full,padding:"0 5px"}}>{c}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:T.text3,
+            background:T.bg2,padding:"4px 0",marginBottom:12,fontWeight:600,fontFamily:T.mono}}>
+            03 — Orders List
+          </div>
+          {orders.map((order,i)=>(
+            <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:9,background:T.bg0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:T.text0,fontFamily:T.mono}}>{order.ref}</div>
+                  <div style={{fontSize:9,color:T.text3,marginTop:3}}>{order.date} · {order.items} item{order.items>1?"s":""} · {order.type}</div>
+                </div>
+                <div style={{background:order.bg,color:order.col,borderRadius:T.r.sm,padding:"2px 8px",fontSize:9,fontWeight:600}}>{order.status}</div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:14,fontWeight:700,color:T.text0}}>{order.total}</div>
+                <div style={{display:"flex",gap:7}}>
+                  {order.status==="Delivered"&&(
+                    <button style={{fontSize:9,color:T.blueText,background:"transparent",border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"3px 9px",cursor:"pointer"}}>Write Review</button>
+                  )}
+                  <WfBtn primary style={{fontSize:9,padding:"4px 12px"}}>View Order →</WfBtn>
+                </div>
+              </div>
+            </div>
+          ))}
+          <WfAnnot>Status badge colours: Pending=amber · Confirmed=green · Packed=purple · Shipped=blue · Delivered=dark green · Cancelled=red · SSE updates badge in real time without page refresh</WfAnnot>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ORDER DETAIL (BUYER)
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeOrderDetail(){
+  const timelineSteps=[
+    {label:"Order Placed",date:"17 Mar 2026, 10:32",done:true,active:false},
+    {label:"Payment Confirmed",date:"17 Mar 2026, 10:33",done:true,active:false},
+    {label:"Order Packed",date:"17 Mar 2026, 14:20",done:true,active:false},
+    {label:"Out for Delivery",date:"Estimated: 18 Mar 2026",done:false,active:true},
+    {label:"Delivered",date:"—",done:false,active:false},
+  ];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Nav */}
+      <div style={{display:"flex",alignItems:"center",padding:"10px 24px",background:T.bg0,borderBottom:`1px solid ${T.border1}`}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>WillOfGod</div>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:10,color:T.blueText,cursor:"pointer",textDecoration:"underline"}}>← Back to My Orders</span>
+      </div>
+
+      {/* Page header */}
+      <WfSection num="01" label="Page Header — Order Reference, Status, Download Invoice">
+        <div style={{padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.bg0}}>
+          <div>
+            <div style={{fontSize:10,color:T.text3,marginBottom:4}}>Home › My Orders › Order Detail</div>
+            <div style={{fontSize:17,fontWeight:700,color:T.text0,fontFamily:T.mono}}>ORD-20260317-A3F8K2QZ</div>
+            <div style={{fontSize:10,color:T.text3,marginTop:3}}>Placed on 17 March 2026 · Delivery Order</div>
+          </div>
+          <div style={{display:"flex",gap:9,alignItems:"center"}}>
+            <div style={{background:"#E1F5EE",color:"#085041",borderRadius:T.r.sm,padding:"3px 10px",fontSize:10,fontWeight:600}}>Confirmed</div>
+            <WfBtn primary style={{fontSize:10,padding:"6px 14px"}}>Download Invoice</WfBtn>
+          </div>
+        </div>
+      </WfSection>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 280px"}}>
+        {/* LEFT */}
+        <div style={{padding:"16px 24px",borderRight:`1px solid ${T.border1}`,background:T.bg0}}>
+
+          <WfSection num="02" label="Order Status Timeline (live SSE updates)">
+            <div style={{padding:"14px 0"}}>
+              {timelineSteps.map((step,i)=>(
+                <div key={i} style={{display:"flex",gap:14,marginBottom:0}}>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26}}>
+                    <div style={{width:22,height:22,borderRadius:"50%",flexShrink:0,
+                      background:step.done?T.greenLight:step.active?T.blueLight:T.bg3,
+                      border:`1px solid ${step.done?"#86EFAC":step.active?T.blueBorder:T.border0}`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,
+                      color:step.done?T.green:step.active?T.blueText:T.text3}}>
+                      {step.done?"✓":step.active?"●":"○"}
+                    </div>
+                    {i<timelineSteps.length-1&&(
+                      <div style={{width:2,height:30,background:step.done?"#86EFAC":T.border2,margin:"3px 0"}}/>
+                    )}
+                  </div>
+                  <div style={{flex:1,paddingBottom:i<timelineSteps.length-1?8:0}}>
+                    <div style={{fontSize:11,fontWeight:step.active?600:400,
+                      color:step.done?T.text0:step.active?T.blueText:T.text3}}>{step.label}</div>
+                    <div style={{fontSize:9,color:step.active?T.blueText:T.text3,marginTop:2}}>{step.date}</div>
+                  </div>
+                </div>
+              ))}
+              <WfAnnot>Live SSE updates this timeline when admin changes status · Estimated delivery date shown when admin sets it</WfAnnot>
+            </div>
+          </WfSection>
+
+          <WfSection num="03" label="Tracking">
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,margin:"12px 0"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.text0}}>Tracking Number</div>
+                <div style={{fontSize:10,fontFamily:T.mono,color:T.text0}}>TRK-20260317-K7P2M9QR</div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:9,color:T.text3}}>External courier tracking</div>
+                <div style={{fontSize:9,color:T.text3,fontStyle:"italic"}}>No external link set yet</div>
+              </div>
+              <WfAnnot>When admin adds tracking_url, a clickable '🔗 Track Package' link replaces 'No external link set yet'</WfAnnot>
+            </div>
+          </WfSection>
+
+          <WfSection num="04" label="Order Items">
+            <div style={{paddingTop:8}}>
+              {[{name:"Classic Tailored Blazer",variant:"Blue / Size M",qty:1,unit:"₦18,500",total:"₦18,500"},{name:"Slim Fit Chinos",variant:"Beige / 32",qty:2,unit:"₦12,000",total:"₦24,000"}].map((item,i)=>(
+                <div key={i} style={{display:"flex",gap:12,padding:"11px 0",borderBottom:`1px solid ${T.border2}`}}>
+                  <WfImg height={52} style={{width:52,flexShrink:0,borderRadius:T.r.md}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:3}}>{item.name}</div>
+                    <div style={{fontSize:9,color:T.text3,marginBottom:2}}>{item.variant} · Qty: {item.qty}</div>
+                    <div style={{fontSize:9,color:T.text3}}>Unit price: {item.unit}</div>
+                  </div>
+                  <div style={{fontSize:12,fontWeight:600,color:T.text0}}>{item.total}</div>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT */}
+        <div style={{padding:16,background:T.bg1}}>
+          <WfSection num="05" label="Payment Summary">
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:12}}>
+              {[["Subtotal","₦42,500",false],["Coupon (SAVE20)","−₦6,500",true],["Shipping","Free",true]].map(([l,v,green])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:6,color:green?T.green:T.text1}}>
+                  <span>{l}</span><span>{v}</span>
+                </div>
+              ))}
+              <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,color:T.text0,marginBottom:7}}>
+                <span>Total Paid</span><span>₦36,000</span>
+              </div>
+              <div style={{height:1,background:T.border2,margin:"7px 0"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}>
+                <span style={{color:T.text1}}>Provider</span><span style={{color:T.text0}}>Stripe</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9}}>
+                <span style={{color:T.text3}}>Transaction ID</span>
+                <span style={{fontFamily:T.mono,color:T.text3}}>pi_3P...xQZ2</span>
+              </div>
+            </div>
+          </WfSection>
+
+          <WfSection num="06" label="Delivery Address">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:12,fontSize:10,color:T.text1,lineHeight:1.7}}>
+              <div style={{fontWeight:600,color:T.text0,marginBottom:3}}>John Adebayo</div>
+              12 Marina Street<br/>Lagos Island, Lagos State<br/>Nigeria
+            </div>
+          </WfSection>
+
+          <WfSection num="07" label="Write Review (shown only when order status = DELIVERED)">
+            <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:12,marginBottom:12}}>
+              <div style={{fontSize:10,color:T.text1,marginBottom:10}}>Rate your purchase:</div>
+              {["Classic Tailored Blazer","Slim Fit Chinos"].map(n=>(
+                <div key={n} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:10,color:T.text1}}>{n}</span>
+                  <button style={{fontSize:9,color:T.blueText,background:"transparent",border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"2px 9px",cursor:"pointer"}}>Review</button>
+                </div>
+              ))}
+              <WfAnnot>Only shown when order status is DELIVERED · Absent from DOM entirely for other statuses</WfAnnot>
+            </div>
+            <WfBtn style={{width:"100%",justifyContent:"center",fontSize:10}}>← Back to Orders</WfBtn>
+          </WfSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // WIREFRAMES REGISTRY
 // ══════════════════════════════════════════════════════════════════════════════
 const WIREFRAMES = {
-  homepage:    {component:WireframeHomepage,        batch:"Batch 1 — Public Pages",     url:"/"},
-  prod_list:   {component:WireframeProductListing,  batch:"Batch 1 — Public Pages",     url:"/products"},
-  prod_detail: {component:WireframeProductDetail,   batch:"Batch 1 — Public Pages",     url:"/products/:slug"},
-  cat_pg:      {component:WireframeCategoryPage,    batch:"Batch 1 — Public Pages",     url:"/categories/:slug"},
-  search_pg:   {component:WireframeSearchResults,   batch:"Batch 2 — Discovery Pages",  url:"/search?q="},
-  flash_pg:    {component:WireframeFlashSales,      batch:"Batch 2 — Discovery Pages",  url:"/flash-sales"},
-  arrivals_pg: {component:WireframeNewArrivals,     batch:"Batch 2 — Discovery Pages",  url:"/new-arrivals"},
-  sale_pg:     {component:WireframeSalePage,        batch:"Batch 2 — Discovery Pages",  url:"/sale"},
-  compare_pg:  {component:WireframeComparison,      batch:"Batch 2 — Discovery Pages",  url:"/compare"},
+  homepage:      {component:WireframeHomepage,          batch:"Batch 1 — Public Pages",       url:"/"},
+  prod_list:     {component:WireframeProductListing,    batch:"Batch 1 — Public Pages",       url:"/products"},
+  prod_detail:   {component:WireframeProductDetail,     batch:"Batch 1 — Public Pages",       url:"/products/:slug"},
+  cat_pg:        {component:WireframeCategoryPage,      batch:"Batch 1 — Public Pages",       url:"/categories/:slug"},
+  search_pg:     {component:WireframeSearchResults,     batch:"Batch 2 — Discovery Pages",    url:"/search?q="},
+  flash_pg:      {component:WireframeFlashSales,        batch:"Batch 2 — Discovery Pages",    url:"/flash-sales"},
+  arrivals_pg:   {component:WireframeNewArrivals,       batch:"Batch 2 — Discovery Pages",    url:"/new-arrivals"},
+  sale_pg:       {component:WireframeSalePage,          batch:"Batch 2 — Discovery Pages",    url:"/sale"},
+  compare_pg:    {component:WireframeComparison,        batch:"Batch 2 — Discovery Pages",    url:"/compare"},
+  login_pg:      {component:WireframeLogin,             batch:"Batch 3 — Auth Pages",         url:"/login"},
+  signup_pg:     {component:WireframeSignUp,            batch:"Batch 3 — Auth Pages",         url:"/register"},
+  verify_pg:     {component:WireframeEmailVerification, batch:"Batch 3 — Auth Pages",         url:"/verify-email"},
+  forgot_pg:     {component:WireframeForgotPassword,    batch:"Batch 3 — Auth Pages",         url:"/forgot-password"},
+  reset_pg:      {component:WireframeResetPassword,     batch:"Batch 3 — Auth Pages",         url:"/reset-password"},
+  maint_pg:      {component:WireframeMaintenance,       batch:"Batch 3 — Auth Pages",         url:"/maintenance"},
+  cart_pg:       {component:WireframeCart,              batch:"Batch 4 — Buyer Flow",         url:"/cart"},
+  checkout_pg:   {component:WireframeCheckout,          batch:"Batch 4 — Buyer Flow",         url:"/checkout"},
+  payment_pg:    {component:WireframePayment,           batch:"Batch 4 — Buyer Flow",         url:"/payment"},
+  order_conf:    {component:WireframeOrderConfirmation, batch:"Batch 4 — Buyer Flow",         url:"/order-confirmation"},
+  my_orders:     {component:WireframeMyOrders,          batch:"Batch 4 — Buyer Flow",         url:"/account/orders"},
+  order_detail_b:{component:WireframeOrderDetail,       batch:"Batch 4 — Buyer Flow",         url:"/account/orders/:id"},
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
