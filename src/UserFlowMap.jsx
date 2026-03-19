@@ -915,6 +915,704 @@ const PAGE_DATA = {
       "order_id in URL should be the public reference string, not a database UUID",
       "'Write Review' section must be completely absent from the DOM when status is not DELIVERED"
     ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  profile_dash:{
+    purpose:"Central buyer account hub. Provides a high-level overview of account status, key statistics, quick navigation to every account section, and recent activity at a glance.",
+    overview:"The Profile Dashboard is the landing page of the buyer account area. It uses the shared two-column layout (AccountSidebar left, main content right) consistent across all account pages. The main area contains four sections stacked vertically: a profile card (avatar, name, email, phone, country, verification badge), a 4-stat row, a 3×2 quick-links grid, and a 2-column recent activity panel. The 'Danger Zone' card (account deletion) sits in the recent activity column as a deliberate friction point — prominent enough to find, but not prominent enough to trigger accidentally.",
+    sections:[
+      {num:"01",name:"Profile Card",description:"Displays buyer's avatar (72×72px circle with initials or uploaded photo), name, email, phone, country, membership date, and verification status. An edit pencil icon overlays the avatar for quick avatar change. An 'Edit Profile' button sits right-aligned in the card.",components:["Avatar — 72×72px circle, info-coloured bg, initials or uploaded photo, 20px pencil edit button overlaid bottom-right","Name — H2, 16px bold","Email — 10px tertiary","Phone + Country — 10px tertiary","Tag: 'Member since [month year]'","Status badge: '● Verified' in success green (or '⚠ Unverified' in warning if not yet verified)","'Edit Profile' primary button — right-aligned, links to Edit Profile page"]},
+      {num:"02",name:"Stats Row",description:"Four equal-width stat tiles in a single row. Each shows a large numeric value and a small label below. Values are pulled fresh from the DB on every dashboard load.",components:["Stat tile × 4 — secondary background, centred, 12px padding","Values: Total Orders (12), Total Spent (₦248k), Wishlists (3), Reviews Written (8)","Values use 18px semi-bold; labels use 9px tertiary"]},
+      {num:"03",name:"Quick Links Grid",description:"3-column, 2-row grid of navigational shortcut cards. Each card has a large emoji icon, section title, and a brief count/status sub-label. Clicking any card navigates to that account section.",components:["QuickLinkCard × 6 — centred layout, 14px padding: 📦 My Orders ('12 total, 2 pending'), 📍 Addresses ('3 saved'), ♡ Wishlists ('3 lists, 24 items'), ⭐ My Reviews ('8 written'), 🔔 Notifications ('3 unread'), 🔍 Saved Searches ('5 alerts')","Count data pulled from DB on dashboard load — not cached"]},
+      {num:"04",name:"Recent Activity",description:"Two-column panel. Left card: 2 most recent orders (reference, status, total) with 'View all orders →' link. Right card: Danger Zone — account deletion CTA with confirmation requirement.",components:["'Recent Orders' card — 2 order rows: reference (monospace 10px), status text, amount; 'View all orders →' info link at bottom","'Danger Zone' card — 'Permanently delete your account and all associated data.' body text, 'Delete Account' danger-bordered button full width","Annotation: 'Requires password confirmation · Cancels pending orders'"]}
+    ],
+    states:[
+      "Verified account: '● Verified' success badge; no verification prompt shown",
+      "Unverified account: '⚠ Unverified' warning badge; 'Resend Verification Email' prompt shown in place of status",
+      "No orders: Recent Orders card shows 'No orders yet' empty state",
+      "Notifications unread: 🔔 Notifications quick link shows unread count in a danger-coloured badge",
+      "Delete Account clicked: modal/dialog prompts for password confirmation before proceeding"
+    ],
+    dataRequirements:[
+      "GET /api/account/dashboard — returns { profile, stats{ order_count, total_spent, wishlist_count, review_count }, recent_orders[], unread_notification_count, saved_search_count }",
+      "Single endpoint to minimise round trips; all data needed for dashboard fetched in one call"
+    ],
+    designNotes:[
+      "Dashboard stats must always be fetched fresh — never show stale counts from a previous session",
+      "The Danger Zone must require password re-entry in a confirmation modal — never delete on first click",
+      "Quick link unread counts (e.g. Notifications '3 unread') should match the sidebar badge count exactly",
+      "Avatar edit pencil (bottom-right of avatar) should be a subtle overlay that becomes more visible on hover"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  edit_profile:{
+    purpose:"Buyer self-service profile update page. Allows updating name, phone, and country; uploading/removing a profile avatar; and changing the account password.",
+    overview:"Edit Profile is a single-column form page within the account layout. It is divided into three distinct form sections: Avatar Upload, Personal Details, and Change Password. The email field is intentionally shown but disabled — it is not editable here (email changes require a separate verified flow). The password change section uses a 3-column grid for current/new/confirm fields with a strength bar. The form has a single 'Save Changes' primary button and a 'Cancel' secondary button at the bottom right.",
+    sections:[
+      {num:"01",name:"Avatar Upload",description:"80×80px avatar circle with a 📷 camera button overlaid bottom-right. Below the avatar: 'Upload Photo' and 'Remove' buttons, plus file format and size constraints.",components:["Avatar circle — 80×80px, info-coloured bg, initials or uploaded photo","Camera overlay button — 24×24px circle, bg-primary border, 📷 icon; opens file picker","'Upload Photo' primary button + 'Remove' secondary button — horizontal row","Constraint text — 'JPG, PNG or WebP · Max 2MB · Square crop applied'","Annotation: 'processImage() resizes to 150×150 · stored via storage.service.js'"]},
+      {num:"02",name:"Personal Details Form",description:"2-column grid. Full name (editable), Email (disabled — not editable here), Phone number, Country dropdown. All pre-filled with current values.",components:["Full name input — pre-filled, editable","Email input — pre-filled, disabled (opacity 0.5, cursor:not-allowed), label note '(not editable here)'","Phone number input — pre-filled, editable","Country dropdown — pre-selected to current country; same country list as signup","Annotation: 'Email change requires a separate verified-email-change flow · Not available here'"]},
+      {num:"03",name:"Change Password",description:"Collapsible or always-visible section in a secondary-bg card. 3-column grid: Current password, New password, Confirm new password. New password field has a 4-segment strength bar below it.",components:["Section card — secondary background","Section title — 'Change Password', 12px bold","3-column grid: Current password (type=password), New password (type=password), Confirm new password (type=password)","Strength bar below New password — 4 segments, same component as Sign Up page","Strength label — 'Medium — add a special character' (warning colour)","'Cancel' secondary + 'Save Changes' primary — right-aligned below all sections"]}
+    ],
+    states:[
+      "Unchanged form: Save Changes button enabled (form is always submittable)",
+      "Password section left blank: password is not changed on save — backend checks if current_password is provided",
+      "New password weak: strength bar partially filled; Save blocked until strength ≥ medium",
+      "Passwords mismatch: confirm field shows '✕ Passwords do not match' danger inline",
+      "Avatar upload: file picker opens; selected image shown as preview before save",
+      "Save success: success toast 'Profile updated successfully'; page stays on Edit Profile",
+      "Save error (wrong current password): inline error under Current password field"
+    ],
+    dataRequirements:[
+      "GET /api/account/profile — current profile data for pre-filling",
+      "PATCH /api/account/profile — { name, phone, country, avatar_url } → updates profile",
+      "POST /api/account/change-password — { current_password, new_password } → validates and updates",
+      "POST /api/account/avatar — multipart/form-data with image file → returns new avatar_url"
+    ],
+    designNotes:[
+      "Email field must use the HTML disabled attribute — not just CSS opacity — to prevent form submission of the email value",
+      "Avatar preview should show immediately after file selection (FileReader API) before upload completes",
+      "Change Password section should be subtly separated from Personal Details — use a secondary-bg card with its own heading",
+      "If the buyer has no password (Google OAuth-only account): Change Password section is hidden and replaced with 'Set a password for email login' CTA"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  addresses_pg:{
+    purpose:"Buyer delivery address management page. Allows viewing, adding, editing, deleting, and setting the default delivery address.",
+    overview:"Saved Addresses shows all the buyer's delivery addresses as a 2-column card grid. The default address is visually distinguished (info-coloured border, 'Default' success badge). Each non-default card has a 'Set Default' button. All cards have Edit and Delete. A '+' placeholder card always appears as the last grid item — clicking it or the '+ Add New Address' header button expands an inline form in an info-coloured card below the grid. The inline form collects Label, Street, City, State, Country, Postal Code, and an optional 'Set as default' checkbox.",
+    sections:[
+      {num:"01",name:"Address Cards Grid",description:"2-column card grid. Default address has 1.5px info-coloured border and a 'Default' success-coloured badge next to the label. Each card shows the address string and contextual action buttons.",components:["AddressCard × N — bordered, rounded, 12px padding","Default card — 1.5px info border; 'Default' success badge (8px font) next to label","Non-default card — standard 0.5px border; 'Set Default' info-bordered button","Both card types: 'Edit' secondary button, 'Delete' danger-bordered button","'+' placeholder card — dashed border, centred + icon and 'Add New Address' label, min-height 120px; triggers form expansion on click","Page header: 'Saved Addresses' title left, '+ Add New Address' primary button right"]},
+      {num:"02",name:"Add / Edit Address Form (inline expanded)",description:"Info-coloured inline form card shown below the grid when adding or editing. 2-column grid for fields. 'Set as default' checkbox at the bottom.",components:["Form card — info-coloured background, 1px info border, rounded","Section title — 'New Address' or 'Edit Address' (12px bold, info-coloured)","2-column field grid: Label, Street Address, City, State, Country, Postal Code","'Set as default address' checkbox (info-coloured label)","'Save Address' primary + 'Cancel' secondary buttons"]}
+    ],
+    states:[
+      "Default address: info border + Default badge; 'Set Default' button hidden",
+      "Non-default: standard border; 'Set Default' shown",
+      "Add form expanded: form card visible below grid; placeholder card still shown",
+      "Edit mode: form pre-filled with that address's values; title changes to 'Edit Address'",
+      "Delete clicked: confirmation dialog 'Are you sure you want to delete this address?'",
+      "Only one address: Delete button shown (user can still delete their only address)",
+      "Empty state (no addresses): grid shows only the placeholder card; prompt to add first address"
+    ],
+    dataRequirements:[
+      "GET /api/addresses — all buyer addresses",
+      "POST /api/addresses — { label, street, city, state, country, postal_code, is_default }",
+      "PATCH /api/addresses/:id — update address fields or set is_default=true",
+      "DELETE /api/addresses/:id — delete address; if deleted address was default, backend clears default (no auto-assign)"
+    ],
+    designNotes:[
+      "When 'Set as default' is checked on a new/edit form, the previous default must be unset server-side atomically",
+      "The inline form expansion should animate (max-height transition) rather than abruptly appearing",
+      "Delete confirmation should be a small inline confirmation ('Are you sure? Yes / No') rather than a modal, to avoid heavy UI for a simple action",
+      "Maximum address count can be enforced (e.g. 10) — show 'Address limit reached' if exceeded"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  wishlists_pg:{
+    purpose:"Named wishlist management. Buyer can maintain multiple named wishlists, switch between them via tab, add items to cart, move items between lists, and remove items.",
+    overview:"The Wishlists page uses tab navigation at the top of the content area to switch between named wishlists. The 'All Items' tab shows the combined view. Each named list is a separate tab. A '+ New List' dashed-border button at the end of the tabs creates a new named list. Above the tab row (right side): 'Rename List' and 'Delete List' contextual buttons for the currently selected named list. The product grid below shows all items in the active list — 4 columns, each card has a × remove button, Add to Cart, and a Move ↗ button (moves item to another list via a dropdown).",
+    sections:[
+      {num:"01",name:"Wishlist Tabs + List Actions",description:"Horizontal tab row with one tab per named list plus 'All Items'. A '+ New List' dashed button creates a new list. 'Rename List' and 'Delete List' appear to the right for the active named list.",components:["Tab pills — 'All Items (24)' (active by default), 'Birthday List (8)', 'Christmas List (12)', 'Daily Wear (4)'","'+ New List' dashed-border tab at end — opens inline name input on click","'Rename List' secondary button — right-aligned, shown for named lists (not 'All Items')","'Delete List' danger-bordered button — right-aligned; requires confirmation","Annotation: 'Multiple named wishlists · createWishlist / updateWishlist / deleteWishlist · moveItemBetweenWishlists'"]},
+      {num:"02",name:"Wishlist Product Grid",description:"4-column product card grid showing items in the active list. Each card: image, × remove button (top-right absolute), product name + price placeholder lines, 'Add to Cart' + 'Move ↗' buttons.",components:["WishlistCard × N — bordered, rounded, overflow:hidden","Product image (110px height)","× remove button — 20×20px circle, absolute top-right, danger-coloured ×","Product name placeholder (tl.h line) + price placeholder (tl line)","'Add to Cart' primary button (flex:1)","'Move ↗' secondary button — triggers a list-picker dropdown to select destination list"]}
+    ],
+    states:[
+      "'All Items' tab: combined view, no Rename/Delete buttons shown",
+      "Named list tab: Rename and Delete buttons shown top-right",
+      "Empty list: grid replaced by 'This list is empty. Browse products to add items.' + 'Start Shopping' CTA",
+      "Item is out of stock: 'Add to Cart' button greyed with 'Out of Stock' label",
+      "Move ↗ clicked: small dropdown appears with other list names; selecting moves the item",
+      "'+ New List' clicked: inline name input appears at end of tabs; Enter or ✓ button confirms",
+      "Delete List: confirmation dialog; items in the list are removed from that list (not from other lists)"
+    ],
+    dataRequirements:[
+      "GET /api/wishlists — all buyer wishlists with item counts",
+      "GET /api/wishlists/:id/items — items in a specific list with current prices and stock status",
+      "POST /api/wishlists — { name } → create new list",
+      "PATCH /api/wishlists/:id — { name } → rename list",
+      "DELETE /api/wishlists/:id — delete list and all its items",
+      "DELETE /api/wishlists/:id/items/:product_variant_id — remove item from list",
+      "POST /api/wishlists/:id/items/:product_variant_id/move — { target_wishlist_id } → move item"
+    ],
+    designNotes:[
+      "Tab order should be: All Items first, then named lists alphabetically, then + New List button",
+      "'All Items' tab is a virtual view — it is not a real wishlist in the DB; it queries all wishlist_items for the buyer",
+      "Move ↗ dropdown must not include the currently active list as an option",
+      "When a new list is created inline, focus should immediately move to the tab input for naming"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  recent_pg:{
+    purpose:"Browsing history page showing the last 20 products the buyer has viewed, grouped by date, with quick Add to Cart access.",
+    overview:"Recently Viewed displays up to 20 products ordered by most recent view, grouped under date separators ('Today', 'Yesterday', 'This Week'). Each group uses the same horizontal rule separator pattern as the New Arrivals page. A 'Clear History' danger-bordered button in the header clears all records. For anonymous visitors, view history is tracked via cookie; on login, it is merged into the buyer's DB record via recordProductView(). The grid is 4 columns per group.",
+    sections:[
+      {num:"01",name:"Date-Grouped Product Grid",description:"Products grouped under small-caps date labels (Today / Yesterday / This Week). Within each group: a 4-column card grid. Each card shows image, name, price, 'Viewed Xh ago' timestamp, and 'Add to Cart'.",components:["Page header — 'Recently Viewed' title (14px bold), 'Last 20 products you browsed' sub-label, 'Clear History' danger-bordered button (right)","DateGroupSeparator — small-caps label + horizontal rule extending to the right (flex layout)","ProductCard (Recently Viewed variant) × N — image (90px), name (tl.h), price (tl), 'Viewed Xh ago' timestamp (9px tertiary), 'Add to Cart' primary button (full width, 8px font)","Annotation: 'recordProductView() upserts viewed_at · Anonymous visitors tracked via cookie · Merged to account on login'"]}
+    ],
+    states:[
+      "Products present: grouped display under Today/Yesterday/This Week headers",
+      "Clear History clicked: confirmation dialog; on confirm, all records deleted, page shows empty state",
+      "Empty state: 'You haven't viewed any products yet' + 'Start Browsing' CTA",
+      "Product now out of stock: Add to Cart greyed with 'Out of Stock' label",
+      "Anonymous visitor: history from cookie shown; 'Log in to save your history permanently' banner at top"
+    ],
+    dataRequirements:[
+      "GET /api/recently-viewed — last 20 products ordered by viewed_at DESC; includes current price and stock status",
+      "DELETE /api/recently-viewed — clear all history records for the buyer",
+      "Date grouping performed client-side from viewed_at timestamps"
+    ],
+    designNotes:[
+      "Date group separator uses the same flex + rule layout as New Arrivals — extract as a shared DateGroupHeading component",
+      "viewed_at timestamps should be relative ('2h ago', 'Yesterday at 3pm') for recency, not absolute dates within the card",
+      "'Clear History' should show a brief inline confirmation ('Clear all? Yes / No') before deleting",
+      "Maximum of 20 items — when the 21st item is viewed, the oldest is automatically evicted (upsert logic)"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  my_reviews:{
+    purpose:"Buyer's complete review history. Displays all reviews written with approval status, helpful count, and an inline edit capability. Buyers can edit but not delete their own reviews.",
+    overview:"My Reviews lists all reviews the buyer has written, ordered by most recent. Each review card has: a product thumbnail, product name, star rating display, approval status badge (Published in success green, or Pending Approval in warning amber), the review body text, submission date, helpful count, and an 'Edit' button. When 'Edit' is clicked, the review card expands an inline edit form with interactive star rating selector and a textarea. Editing a published review when require_review_approval=true resets its status to Pending Approval.",
+    sections:[
+      {num:"01",name:"Review Cards",description:"Vertical list of review cards. Each card has a left thumbnail, right header with product name + star rating + status badge, review body, footer with date/helpful count, and an Edit button.",components:["ReviewCard — bordered, rounded, 12px padding","Product thumbnail — 48×48px, left-aligned","Product name — 11px bold","Star rating display — filled/empty stars","Status badge — 'Published' success-coloured or 'Pending Approval' warning-coloured","Review body text — 10px, line-height 1.6","Footer row — 'date · N found helpful' (9px tertiary left), 'Edit' info-bordered button (right)","Page title — 'My Reviews (8 total)'","Annotation: 'Buyers can edit (not delete) · Editing resets to Pending Approval if require_review_approval is on · Only admin can delete'"]},
+      {num:"02",name:"Inline Edit Form (expanded state)",description:"When Edit is clicked, the review body is replaced by an inline form in a secondary-bg card. Interactive star rating (clickable individual stars), textarea with current review text pre-filled, Save Changes + Cancel buttons.",components:["Edit form card — secondary background, 0.5px border","'Edit Review' title (10px bold)","Interactive star selector — 5 individual ★ spans, clickable; filled/empty state updates on click and hover","Textarea — pre-filled with current review text, 60px height, resize:none","'Save Changes' primary + 'Cancel' secondary buttons"]}
+    ],
+    states:[
+      "Published review: 'Published' success badge; Edit button visible",
+      "Pending Approval review: 'Pending Approval' warning badge; Edit button visible",
+      "Edit form open: review body hidden, edit form visible in its place",
+      "Editing a published review (require_review_approval=on): on save, badge changes to 'Pending Approval'",
+      "Empty state: 'You haven't written any reviews yet' + 'Browse delivered orders to leave a review' CTA"
+    ],
+    dataRequirements:[
+      "GET /api/account/reviews — all reviews by this buyer with product info, approval status, helpful count",
+      "PATCH /api/reviews/:id — { rating, comment } → updates review; resets is_approved=false if require_review_approval setting is on"
+    ],
+    designNotes:[
+      "The interactive star rating in the edit form should update on hover (preview) and click (commit)",
+      "Editing animation: review body fades out, edit form slides in (max-height transition)",
+      "The helpful count ('N found helpful') is read-only in the buyer's view — it reflects votes from other buyers",
+      "Do not show a Delete button anywhere on this page — deletion is admin-only"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  saved_search:{
+    purpose:"Management page for the buyer's saved search alerts. Each saved search triggers an SSE + email notification when new matching products are added by the admin.",
+    overview:"Saved Searches lists each of the buyer's saved query-and-filter combinations as a card. Each card shows the search query in quotes, the active filter labels, the date saved, a 'N new matches' success badge (shown when new products have matched since last visit), a toggle switch to enable/disable alerts, and 'Run Search' + 'Delete Alert' action buttons. The toggle controls whether the buyer receives notifications for that query — disabled searches remain saved but produce no alerts.",
+    sections:[
+      {num:"01",name:"Saved Search Cards",description:"Vertical card list. Each card shows the search query (bold, quoted), filter summary, save date, match count badge, alert toggle, and action buttons.",components:["Page title — 'Saved Searches & Alerts' + sub-label 'Get notified when new products match your saved searches'","SavedSearchCard — bordered, rounded, 12px padding","Query — 12px bold, in quotes (e.g. '\"Blue blazer women\"')","Filter summary — 9px tertiary (e.g. 'Women · ₦10k–₦30k · Size M')","Save date — 9px tertiary ('Saved on 14 Mar 2026')","'N new matches' badge — success-coloured; shown only when matches > 0","Alert toggle switch — info-coloured when ON, secondary when OFF; toggling calls PATCH /api/saved-searches/:id","'Run Search' primary button — navigates to /search?q= with original query and filters","'Delete Alert' danger-bordered button — deletes the saved search record","Annotation: 'checkSavedSearchMatches() runs when admin adds a new product · Notifies via email + SSE if query matches'"]}
+    ],
+    states:[
+      "Alert active (toggle ON): info-coloured toggle; buyer will receive notifications",
+      "Alert paused (toggle OFF): secondary-coloured toggle; no notifications sent even if matches exist",
+      "New matches: '3 new matches' success badge visible on that card",
+      "No matches yet: no badge shown",
+      "Empty state: 'No saved searches yet. Search for products and click Save this search.' CTA"
+    ],
+    dataRequirements:[
+      "GET /api/saved-searches — all buyer saved searches with match counts since last_notified_at",
+      "PATCH /api/saved-searches/:id — { is_active } → enable/disable alert",
+      "DELETE /api/saved-searches/:id — delete saved search"
+    ],
+    designNotes:[
+      "Toggle switch change should be immediate (optimistic UI) with silent server sync",
+      "'Run Search' should reconstruct the full search URL from the stored query + filters",
+      "Match count badge should clear (disappear) after the buyer clicks 'Run Search' — mark matches as seen",
+      "Date display: 'Saved on 14 Mar 2026' — use human-readable format, not relative time"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  notif_pg:{
+    purpose:"Persistent notification inbox showing all past notifications (order updates, payment confirmations, promotional alerts, saved search matches). Supports category filtering and individual / bulk read marking.",
+    overview:"The Notifications Inbox is a persistent, DB-backed list of all notifications pushed to the buyer (whether received via SSE or email). It has a category filter tab row (All / Unread / Orders / Payments / Promotions) with counts. Each notification item shows a coloured dot for unread status, an emoji icon in a circle, the notification title (bold if unread), body text, timestamp, and a 'Mark read' button. Unread items have a subtle info-coloured background. A 'Mark All Read' button in the header clears all unread items at once. The list is chronological, most recent first.",
+    sections:[
+      {num:"01",name:"Notification Items",description:"Vertical list of notification rows. Unread rows have info-coloured background and a 6px info-coloured dot on the left. Each row: unread indicator dot, icon circle, title + body + timestamp, 'Mark read' button for unread items.",components:["Page header — 'Notifications' (14px), '3 unread' sub-label, 'Mark All Read' info-bordered button (right)","Category filter tabs — 'All (18)', 'Unread (3)', 'Orders', 'Payments', 'Promotions' (active tab: info border+bg)","NotificationRow — flex, full-width, 10px top-bottom padding, border-bottom","Unread indicator — 6px info-coloured dot, flex-shrink:0, margin-top:5px","Icon circle — 32×32px, bg-secondary, emoji icon inside (📦 order, 💳 payment, ⚡ flash sale, 🔍 search match)","Content column — Title (11px, bold if unread), body text (10px secondary, line-height 1.5), timestamp (9px tertiary)","'Mark read' text button — right-aligned, 8px, shown only on unread rows","Annotation: 'Persistent notification history stored in DB · SSE pushes live notifications · markNotificationRead supports id=all'"]}
+    ],
+    states:[
+      "Unread notification: info-coloured row background, bold title, unread dot visible, 'Mark read' button shown",
+      "Read notification: transparent background, normal weight title, no dot, no 'Mark read' button",
+      "'Mark All Read': all rows transition to read state; unread count clears to 0",
+      "Category filter 'Unread': shows only unread rows; 'All' restores full list",
+      "Empty state: 'No notifications yet' with descriptive sub-text",
+      "New SSE notification arrives: new row prepends to the top of the list with a brief highlight animation"
+    ],
+    dataRequirements:[
+      "GET /api/notifications?type=&read=&page= — paginated notification list with type filter",
+      "PATCH /api/notifications/:id/read — mark single notification as read",
+      "PATCH /api/notifications/read-all — mark all notifications as read",
+      "SSE /api/events — listen for new_notification events to prepend in real time"
+    ],
+    designNotes:[
+      "Unread row background should be a very subtle info tint — not so strong it creates visual noise",
+      "The category filter tabs ('Orders', 'Payments', 'Promotions') filter by notification type stored on the DB record",
+      "Pagination or infinite scroll: infinite scroll with a sentinel element works better for a notification list",
+      "New SSE notification prepend animation: slide down from above with a brief opacity fade-in"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  notif_prefs:{
+    purpose:"Buyer notification preference management. Toggle individual email notification categories on/off and manage newsletter subscription status.",
+    overview:"Notification Preferences is a settings page within the account layout. It contains two sections: a card of 5 email notification toggle rows (one per notification type), and a Newsletter subscription card showing current subscription status with Subscribe/Unsubscribe action. Each toggle row has an emoji icon, title, description, and a toggle switch. The page has a 'Save Preferences' primary button at the bottom right. Changes to the toggles are saved only on button press — not auto-saved on toggle flip.",
+    sections:[
+      {num:"01",name:"Email Notification Toggles",description:"A white card containing 5 toggle rows separated by dividers. Each row: 36×36px emoji icon tile (secondary bg), title + description text, and a toggle switch.",components:["Section title — 'Notification Preferences' + 'Choose which emails you receive from us' sub-label","Preferences card — white bg, rounded border","Toggle row × 5 (separated by 0.5px dividers):","📦 Order status updates — 'Confirmations, shipping, delivery, and cancellation emails' — toggle ON","💳 Payment receipts — 'Receipts and refund confirmation emails' — toggle ON","⚡ Flash sale alerts — 'Notifications when flash sales start that match your interests' — toggle ON","🔍 Saved search alerts — 'Notifications when new products match your saved searches' — toggle ON","📢 Promotional emails — 'Discount codes, special offers, and seasonal campaigns' — toggle OFF (default off)","Toggle switch — info bg + right knob when ON; secondary bg + left knob when OFF"]},
+      {num:"02",name:"Newsletter Subscription",description:"Separate card below the toggles. Shows subscription status badge, Unsubscribe or Subscribe button, and a small info box showing subscription start date.",components:["Card — standard border, rounded, 14px padding","'Newsletter' title (12px bold) + 'Automatic emails when new products or flash sales launch' sub-text","'Subscribed' success badge + 'Unsubscribe' danger-bordered button (right-aligned) — shown when subscribed","'Not subscribed' grey badge + 'Subscribe' primary button (right-aligned) — shown when unsubscribed","Info box — secondary bg, rounded: 'Subscribed since 15 Jan 2025 · You can unsubscribe at any time from this page or from any newsletter email'","Annotation: 'updateNotificationPreferences() updates NotificationPreference table · subscribeNewsletter / unsubscribeNewsletter updates users.is_subscribed'","'Save Preferences' primary button — right-aligned below newsletter card"]}
+    ],
+    states:[
+      "Subscribed: 'Subscribed' success badge + 'Unsubscribe' danger button visible",
+      "Not subscribed: 'Not subscribed' grey badge + 'Subscribe' primary button",
+      "Toggle changed: switch animates; button label remains 'Save Preferences' (not auto-saved)",
+      "Save clicked: PATCH preferences + newsletter status in same request; success toast shown",
+      "Unsubscribe clicked: immediate server call (not deferred to Save button); sets is_subscribed=false instantly"
+    ],
+    dataRequirements:[
+      "GET /api/account/notification-preferences — current toggle states and newsletter subscription status",
+      "PATCH /api/account/notification-preferences — { order_updates, payment_receipts, flash_sale_alerts, saved_search_alerts, promotional_emails } → updates NotificationPreference record",
+      "POST /api/newsletter/unsubscribe — immediate; updates users.is_subscribed=false",
+      "POST /api/newsletter/subscribe — immediate; updates users.is_subscribed=true"
+    ],
+    designNotes:[
+      "Unsubscribe/Subscribe newsletter actions are immediate — do not defer to the Save button; they affect a different field (users.is_subscribed vs NotificationPreference table)",
+      "The Save Preferences button only saves the toggle states — newsletter is handled separately by the inline buttons",
+      "Promotional emails toggle should default to OFF for new users — opt-in, not opt-out",
+      "Order status updates and Payment receipts should not be fully disableable — consider making them required and greyed-out to inform the buyer these are mandatory transactional emails"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  about_pg:{
+    purpose:"Admin-managed brand story page. Communicates WillOfGod's identity, values, and team to visitors and buyers through richly formatted HTML content, a hero banner, a stats row, and a shop CTA.",
+    overview:"The About Us page is a fully admin-managed public-facing page. All text content (except the structural layout elements) is stored as HTML in the page_content DB record and rendered via a WYSIWYG editor in the admin Page Editor. The page is structured into five distinct sections displayed in a single-column centred layout (max-width ~700px for the content block): hero image with overlay headline, rich HTML body text, values/stats row, team section, and a CTA block. A buyer clicking 'Explore Our Story' from the Homepage about snippet lands here.",
+    sections:[
+      {num:"01",name:"Page Hero",description:"Full-width image with a centred text overlay. The image is admin-uploaded; the headline and eyebrow text are set in the admin Page Editor.",components:["Hero image — full viewport width, 200px height, admin-uploaded via Page Editor","Eyebrow — 'Our Story' small-caps, 10px tertiary, centred overlay","Headline — 'Designed for Your Everyday Confidence', 22px semi-bold, centred overlay, admin-set","Overlay is purely text — no buttons or links in the hero on this page"]},
+      {num:"02",name:"HTML Content Block",description:"Centred, max-width ~700px prose section. The sub-heading and all body paragraphs are admin-managed HTML from the Page Editor. Rendered as-is from the getSitePage('about_us') response.",components:["Section sub-heading — 'Who We Are' eyebrow (small-caps, tertiary)","Section heading — 14px–17px semi-bold brand statement","Body prose paragraphs — 2 or more blocks of text (tl lines as placeholders); admin-set rich HTML","Section is purely informational — no interactive elements"]},
+      {num:"03",name:"Values / Stats Row",description:"Three equal-width stat tiles in a single row. Each shows a large numeric value and a short label. All values are admin-set in the Page Editor (not pulled from live DB stats).",components:["Stat tile × 3 — secondary bg, 16px padding, rounded","'5+ / Years in Business', '50k+ / Happy Customers', '1000+ / Products'","Values: 24px semi-bold; labels: 10px tertiary"]},
+      {num:"04",name:"Team Section",description:"3-column grid of team member cards. Each card: circular photo placeholder, name placeholder, and role/title placeholder. All admin-managed HTML content.",components:["Section heading — 'Meet Our Team', 13px semi-bold, centred","TeamCard × 3 — 72×72px circular photo placeholder, name tl.h line, role tl line","Content is admin-managed HTML — team names and photos set in Page Editor"]},
+      {num:"05",name:"CTA Block",description:"Full-width secondary-background block at the bottom of the content area. Drives buyers back into the shop.",components:["CTA container — secondary bg, rounded, 24px padding, centred text","Heading — 'Ready to discover your style?'","Sub-text — 'Browse our latest collection and find pieces you'll love.'","'Shop Now' primary button — links to /products","Annotation: 'All content managed via admin Page Editor · getSitePage(\"about_us\") · Rich text stored as HTML'"]}
+    ],
+    states:[
+      "Default: all content rendered from page_content DB record via getSitePage('about_us')",
+      "Content not yet set by admin: graceful fallback — empty sections hidden; at minimum the hero and CTA are always shown",
+      "Hero image not uploaded: hero section shows solid secondary-bg fallback with the headline overlay still displayed",
+      "Mobile: hero image scales to full width; stats row collapses to 1-column; team grid collapses to 1-column"
+    ],
+    dataRequirements:[
+      "GET /api/pages/about_us — returns { hero_image_url, content_html, last_updated }",
+      "Content is stored as a single HTML string; structural layout (stats row, team grid) may be embedded within the HTML or rendered as fixed UI components that the HTML content slots into"
+    ],
+    designNotes:[
+      "The hero image overlay text must be legible on any image — use a dark semi-transparent gradient or a text shadow",
+      "Rich HTML content must be sanitised server-side before storage and before rendering (DOMPurify or equivalent)",
+      "The team section circular photo crops should be enforced via CSS (object-fit: cover) — admin may upload non-square images",
+      "The stats row values are static admin-set strings — they are not computed from live data"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  contact_pg:{
+    purpose:"Customer-facing contact page combining business information (pulled from Site Settings) with a contact form, social links, and a live chat widget reference.",
+    overview:"The Contact Us page uses a two-column layout. The left column displays the business's contact information (address, phone, email, opening hours — all from Site Settings), followed by social media icon buttons. The right column contains the contact form (name, email, subject dropdown, message textarea) with a clear success state that replaces the form after submission. At the bottom of the page, a callout banner references the floating Live Chat widget. All business info is pulled dynamically from getSiteSettings() — changes in Site Settings reflect immediately.",
+    sections:[
+      {num:"01",name:"Page Header",description:"Full-width centred header on a secondary background. Eyebrow label, page title, and sub-label.",components:["Section container — secondary bg, 24px padding, centred","Eyebrow — 'Get in Touch' small-caps","Page title — 'Contact Us', 20px semi-bold","Sub-label — 'We're here to help. Send us a message and we'll respond within 24 hours.'"]},
+      {num:"02",name:"Business Info (from Site Settings)",description:"Left column. Four info rows: Address, Phone, Email, Hours. Each row has a 32×32px info-coloured icon tile, a bold label, and the value text.",components:["'Our Information' section heading — 12px semi-bold","InfoRow × 4 — icon tile (32×32px, info bg, emoji icon), label (10px bold secondary), value text (10px primary, line-height 1.5)","📍 Address | 📞 Phone | ✉ Email | ⏰ Hours","Hours show two lines: Mon–Fri and Sat (multi-line value)","Annotation: 'Business info pulled from getSiteSettings()'"]},
+      {num:"03",name:"Social Links",description:"Below the business info in the left column. Four square icon buttons for Facebook, Instagram, Twitter/X, and YouTube.",components:["Section label — Social Links","4 square icon buttons — 32×32px, standard border, rounded; initial letter of platform name as placeholder; links to admin-set social URLs from Site Settings"]},
+      {num:"04",name:"Contact Form",description:"Right column. 2-column name+email row, subject dropdown, message textarea, and a 'Send Message' button. Validation is client-side for required fields; submission is async.",components:["2-column grid: 'Your name' text input + 'Email address' email input","'Subject' dropdown — 'Select a subject…', Order Issue, Product Question, Return Request, Other","'Message' textarea — 100px height, resize:none","Submit row — 'We typically respond within 24 hours' note (left) + 'Send Message' primary button (right)","submitContactMessage() → saves to ContactMessage DB record, notifies admin via email + dashboard badge, sends auto-acknowledgement email to sender"]},
+      {num:"05",name:"Contact Form Success State",description:"Replaces the form after successful submission. Green banner with a checkmark icon, 'Message sent!' title, and a personalised confirmation message.",components:["Success banner — success bg, success border, rounded, flex row","Checkmark circle — 28×28px success bg circle, ✓ icon","'Message sent!' title — 11px bold, success colour","Body text — 'We've received your message and will reply to [email] within 24 hours.' (email is success-coloured)","Annotation: 'submitContactMessage() · Saves to DB · Notifies admin via email + dashboard badge · Auto-acknowledgement email sent to sender'"]},
+      {num:"06",name:"Live Chat Widget Reference",description:"Full-width callout at the bottom of the page. Reminds visitors of the floating chat button that is always available on every page. Shows a mini chat panel mockup.",components:["Callout container — secondary bg, flex row, 12px padding","💬 icon circle — 44×44px, info bg","Title + description — 'Live Chat — Available on Every Page', floating button position description","Mini chat panel — white border, 'Support Chat' title, '● Online' indicator, a sample admin message, message input + Send button"]}
+    ],
+    states:[
+      "Default: form visible, empty, no validation errors",
+      "Submitted (success): success banner replaces form; user cannot re-submit without refreshing",
+      "Client-side validation error: required fields highlighted before submission",
+      "Business info not configured: info rows show 'Not set' placeholder or are hidden",
+      "Rate limited (too many submissions): 'You've submitted too many messages recently. Please try again later.' inline notice"
+    ],
+    dataRequirements:[
+      "GET /api/settings/public — returns { address, phone, email, opening_hours, social_links{} }",
+      "POST /api/contact — { name, email, subject, message } → creates ContactMessage record, dispatches admin notification + sender acknowledgement",
+      "Rate limit: 3 submissions per hour per IP"
+    ],
+    designNotes:[
+      "Business info renders from getSiteSettings() — any admin update in Site Settings takes effect immediately on this page",
+      "The success state must persist for the current page session — do not re-show the form on success",
+      "Subject dropdown options are hardcoded in the UI (not admin-configurable) unless a future extension adds custom subjects",
+      "The Live Chat callout at the bottom is purely informational — clicking it should scroll to the floating FAB or open the chat panel"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  faq_pg:{
+    purpose:"Full FAQ page with category-based sidebar navigation, an inline search bar, and admin-ordered accordion groups. Serves as the primary self-service support resource.",
+    overview:"The FAQ Page uses a two-column layout: a 200px left sidebar with category filter navigation, and a wider right content area. The right area opens with a centred page header containing an FAQ search bar. Below: the FAQ items are grouped by category (Shipping, Payments, Returns, Orders, Account), each group rendered as an accordion section. Only the first item in the first visible group is expanded by default. A 'Still have questions?' CTA card at the bottom links to the Contact Us page. All FAQ content and ordering is managed via the admin FAQ Management panel.",
+    sections:[
+      {num:"01",name:"Page Header + Search",description:"Centred full-width header on a secondary background. Page title, sub-label, and a search bar with a leading search icon.",components:["Header container — secondary bg, 24px padding, centred","Page title — 'Frequently Asked Questions', 20px semi-bold","Sub-label — 'Find answers to our most common questions'","Search input — max-width 400px, centred, leading ⌕ icon (absolutely positioned), placeholder 'Search FAQs…'","Search filters FAQ items client-side by question text match"]},
+      {num:"02",name:"Category Filter Sidebar",description:"Left 200px sidebar. Category filter list where each item shows the category name and FAQ count badge. Selecting a category scrolls to or filters that category's accordion group.",components:["'Categories' section label — 10px bold secondary","Category filter items — 'All FAQs (18)', 'Shipping (5)', 'Payments (4)', 'Returns (3)', 'Orders (4)', 'Account (2)'","Active item — info bg, info text colour","Count badge — primary bg when active, secondary bg when inactive, pill shape","Clicking a category scrolls the right panel to that accordion group (or filters)"]},
+      {num:"03",name:"FAQ Accordion Groups",description:"Right content area. FAQ items grouped under category heading dividers. Each item is an accordion with a question trigger and collapsible answer body. First item of the first visible group is expanded on page load.",components:["Category group heading — 12px semi-bold, border-bottom divider","AccordionItem — bordered, rounded, question text (11px) + + / − toggle icon","Expanded state — answer body below the question trigger, border-top, 3-line tl placeholder content","First item in 'Shipping' group is pre-expanded on load","'Still have questions?' CTA card — secondary bg, rounded, centred: heading + sub-text + 'Contact Us' primary button","Annotation: 'Admin reorders FAQ items via drag · reorderFaqs() · getFaqs() returns grouped by category'"]}
+    ],
+    states:[
+      "Default: first FAQ category group visible, first item expanded, all others collapsed",
+      "Category filter selected: right panel scrolls to that group or filters to show only that category's items",
+      "Search active: accordion groups filtered to matching questions only; non-matching items hidden; category headings hidden if all items in group are filtered out",
+      "Search returns no matches: 'No FAQs match your search. Try a different term or contact us.' empty state",
+      "Mobile: sidebar collapses to a horizontal scrollable tab row above the content area"
+    ],
+    dataRequirements:[
+      "GET /api/faqs — returns all FAQ items grouped by category, ordered by admin sort_order",
+      "Search filtering is client-side — no API call on each keypress; filter the already-loaded faq_items array"
+    ],
+    designNotes:[
+      "FAQ data is fully loaded on page render — no pagination or lazy loading needed (typical FAQ counts are small)",
+      "Search filtering should debounce at 200ms and highlight matched terms in the question text",
+      "Accordion animation: max-height transition (0 → auto via JS-set pixel value) for smooth expand/collapse",
+      "The 'Still have questions?' CTA must always be visible — it should not be filtered out by the category or search filter"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  policies_pg:{
+    purpose:"Three static policy pages (Shipping Policy, Privacy Policy, Terms & Conditions) — and optionally Return Policy and Cookie Policy — all managed via the admin Page Editor and rendered with a shared sidebar navigation.",
+    overview:"The Policy Pages share a single two-column layout: a 200px left sidebar for navigating between policy types, and a wider right content area rendering the selected policy's HTML content. The sidebar highlights the active policy with a 2px info-coloured left border. A 'Was this page helpful?' feedback row sits at the bottom of each policy. All policy content is stored as HTML in the page_content table and managed via the admin WYSIWYG Page Editor. The URL reflects the active policy (e.g. /shipping-policy, /privacy-policy).",
+    sections:[
+      {num:"01",name:"Policy Sidebar Navigation",description:"200px left sidebar on a secondary background. Vertical list of all policy pages with the active one visually distinguished. A help text snippet at the bottom links to Contact and FAQ.",components:["'Legal & Policies' section label — 10px bold secondary","Policy nav items — 'Shipping Policy' (active: primary bg, 2px info left border), 'Privacy Policy', 'Terms & Conditions', 'Return Policy', 'Cookie Policy'","Active item — primary bg, 2px info-coloured left border, primary text colour","Inactive items — transparent bg, 2px transparent left border, secondary text","Footer help text — 'Need more help? Contact us or visit our FAQ page.' with inline info-coloured links"]},
+      {num:"02",name:"Policy Content",description:"Right content area. Page title, 'Last updated' timestamp, admin-managed HTML content. Content structure varies per policy but the Shipping Policy wireframe is shown as the example — it contains sub-headings, prose paragraphs, and an embedded delivery timeframes table.",components:["Title row — policy name (18px semi-bold) + 'Last updated: [date]' tertiary (left-aligned); 'Admin-managed HTML' grey badge (right-aligned)","Sub-section heading — 'Delivery Options', 13px semi-bold","Prose paragraphs — tl placeholder lines","'Delivery Timeframes' table — embedded within the HTML content: 3 columns (Location, Standard, Express); 3 rows (Lagos, Other Nigerian Cities, International); secondary-bg card","Additional sub-headings — 'Shipping Fees', 'Pickup Locations' with prose content","Divider","'Was this page helpful?' feedback row — tertiary text (left) + 👍 Yes primary button + 👎 No secondary button (right)","Annotation: 'getSitePage(\"shipping_policy\") · Admin edits via WYSIWYG Page Editor · last_updated shows timestamp'"]}
+    ],
+    states:[
+      "Shipping Policy active (default): sidebar shows Shipping Policy highlighted; right area renders shipping content",
+      "Any policy active: sidebar highlights that policy; right area renders that policy's HTML content",
+      "Policy HTML not yet set by admin: right area shows 'This policy page is not yet available.' placeholder",
+      "Mobile: sidebar collapses to a horizontal dropdown or tab above the content area"
+    ],
+    dataRequirements:[
+      "GET /api/pages/:page_key — page_key values: shipping_policy, privacy_policy, terms_conditions, return_policy, cookie_policy",
+      "Returns: { title, content_html, last_updated }",
+      "Each policy is a separate DB record; admin edits each independently via Page Editor"
+    ],
+    designNotes:[
+      "All policy HTML must be sanitised before rendering — never raw innerHTML without DOMPurify",
+      "The 'Was this page helpful?' row is a lightweight UX signal — store the response server-side per page per session (not per user)",
+      "The 'Last updated' timestamp should use a human-readable date format: '15 March 2026' not an ISO string",
+      "Policy sidebar navigation should work via client-side routing (SPA navigation) to avoid full page reloads when switching policies"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_dash:{
+    purpose:"Central admin command centre. Provides a real-time overview of today's revenue, orders, signups, low-stock count, a 7-day revenue bar chart, recent orders list, low-stock alerts, and a traffic summary row.",
+    overview:"The Admin Dashboard is the first page an admin sees after login. It uses the admin two-column layout: a 200px left sidebar with grouped navigation (Main Menu, Analytics, Content) and the main content area on the right. The admin nav bar is styled differently from the buyer nav — darker secondary background, admin avatar, and notification/chat badge icons. The main area is divided into five numbered sections: KPI cards, revenue chart, recent orders + low-stock panel, and a traffic summary row. All data is live via SSE — new order notifications broadcast to the dashboard in real time.",
+    sections:[
+      {num:"00",name:"Admin Nav Bar",description:"Top navigation bar for the admin area. Differentiated from the buyer nav by its secondary background. Shows the brand name + 'Admin' label, notification bell with unread badge, chat icon with unread badge, and the admin avatar.",components:["'WillOfGod Admin' title — 13px semi-bold + 'Admin' 9px tertiary label","Notification bell icon — 26×26px border, 🔔; danger-coloured badge with count (3)","Chat icon — 26×26px border, 💬; danger-coloured badge with count (5)","Admin avatar — 28×28px circle, info bg, 'AD' initials"]},
+      {num:"01",name:"KPI Cards (today's stats)",description:"Four equal-width stat cards in a single row. Each card: tertiary label (9px), large value (20px), and a coloured sub-label indicating trend or context.",components:["Stat card × 4 — white bg, standard border, rounded, 12px padding","₦284,500 / Today's Revenue / '+12% vs yesterday' (success)","18 / New Orders / '3 pending payment' (info)","7 / New Signups / 'via web + Google' (info)","4 / Low Stock Items / 'needs restocking' (danger)","Data from getDashboardStats() · Updates via SSE on new order"]},
+      {num:"02",name:"Revenue Chart (7-day bar chart)",description:"White card with a 7-day revenue bar chart. Day-of-week labels below each bar. Today's bar highlighted in info colour. Time range switcher (7D / 30D / 90D) top-right. Total and week-over-week % below.",components:["Card with 'Revenue — Last 7 Days' heading + time range switcher (7D active)","Bar chart — 7 columns (M T W T F S S), variable height; today = info colour, others = secondary bg","X-axis labels below each bar — single letter day abbreviations","Footer row — 'Total: ₦1,842,000' (tertiary, left) + '↑ 18% vs last week' (success, right)"]},
+      {num:"03",name:"Recent Orders",description:"Left card in a 2-column bottom grid. List of 4 most recent orders with reference, buyer name, amount, and status badge. 'View all →' link top-right.",components:["'Recent Orders' heading + 'View all →' info link","Order row × 4 — reference (9px monospace, bold), buyer name (8px tertiary), amount (9px bold), status badge","Status badges: Confirmed (green), Pending (amber), Shipped (blue), Delivered (dark green)"]},
+      {num:"04",name:"Low Stock Alerts",description:"Right card in the 2-column grid. List of low/out-of-stock variants with product name, SKU, and stock badge. 'View inventory →' link top-right.",components:["'Low Stock' heading + 'View inventory →' info link","StockItem row × 3 — 28×28px thumbnail, product + variant name (9px bold), SKU (8px tertiary), stock badge ('2 left' in amber 'blow' or '0 left' in red 'bcan')","Annotation: 'sendLowStockAlertsJob runs every 6h · Admin also notified via SSE'"]},
+      {num:"05",name:"Traffic Summary",description:"5-column grid of tertiary-background stat tiles showing today's traffic metrics from TrafficAnalytics.",components:["5 stat tiles — secondary bg, rounded, centred: 1,847 Total Visits · 342 Unique Visitors · 7 New Signups · 24% Cart Abandon Rate · 8.2% Conversion Rate","Annotation: 'Live SSE broadcasts new order notification to this dashboard · getDashboardStats() + streamNotifications()'"]}
+    ],
+    states:[
+      "Live (default): all stats current; SSE connection active; new order cards appear at top of Recent Orders list with a highlight animation",
+      "SSE disconnected: a subtle 'Live updates paused' indicator shown in the header bar",
+      "No orders today: Recent Orders shows 'No orders today' empty state; KPI revenue = ₦0",
+      "Low stock count = 0: Low Stock Alerts section shows 'All items are well-stocked' message"
+    ],
+    dataRequirements:[
+      "GET /api/admin/dashboard — returns { revenue_today, orders_today, signups_today, low_stock_count, revenue_7d[], recent_orders[], low_stock_items[], traffic_today{} }",
+      "SSE /api/admin/events — streams: new_order, order_status_updated, low_stock_alert, new_message events",
+      "Time range switcher (7D/30D/90D) triggers GET /api/admin/revenue?period= to update chart data"
+    ],
+    designNotes:[
+      "SSE connection to the admin dashboard should reconnect automatically on disconnect (EventSource auto-reconnect + exponential backoff)",
+      "The bar chart should be rendered with a lightweight SVG or canvas element — no heavy charting library needed for this simple bar chart",
+      "KPI card values should animate (count-up) on initial load to draw attention",
+      "Today's revenue, orders, and signups should update in real time via SSE — no polling",
+      "The admin sidebar uses 3 grouped sections: Main Menu, Analytics, Content — each prefixed with a small-caps label"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_prods:{
+    purpose:"Admin product management table. Provides search, category/status/stock filtering, bulk actions, per-row status toggle, and direct links to the product edit and variant manager pages.",
+    overview:"The Admin Products page uses the admin layout (secondary-bg sidebar + main content). The main area has a top search + filter bar, a bulk actions row with product count, and a paginated data table. The table shows: checkbox, product thumbnail + name, category breadcrumb, variant count, price range, stock badge, an inline status toggle switch, and three action buttons (Edit, Variants, Delete). The status toggle changes is_active in real time without a page reload. Delete is a soft delete (sets is_active=false with a confirmation dialog). Pagination supports up to 248+ products across 50 pages.",
+    sections:[
+      {num:"01",name:"Search + Filter Bar",description:"Horizontal row of a search input and three filter selects, followed by a Filter button. All filters are applied together on button click.",components:["Search input — 'Search by name or SKU…', flex:2","Category select — 'All Categories', Women, Men, etc.","Status select — 'All Status', Active, Inactive","Stock select — 'All Stock', Low Stock, Out of Stock","'Filter' primary button — applies all filters simultaneously"]},
+      {num:"02",name:"Bulk Actions + Count",description:"Row below the filter bar. Left: select-all checkbox, product count, and a bulk action select + Apply button. Right: Export CSV and + Add Product buttons.",components:["Select-all checkbox — selects/deselects all visible rows","Product count — 'Select all · 248 products'","Bulk action dropdown — 'Bulk Action…', Activate, Deactivate, Delete","'Apply' secondary button","'Export CSV' secondary button (right)","'+ Add Product' primary button (right)"]},
+      {num:"03",name:"Products Table",description:"Full-width sortable data table with alternating row backgrounds. Each row: checkbox, product (thumbnail + name), category, variant count, price range, stock badge, status toggle, action buttons.",components:["Table header row — secondary bg: ☐, Product, Category, Variants, Price Range, Stock, Status, Actions (all small-caps, 9px, tertiary)","Product row — alternating primary/secondary bg, 0.5px border-bottom","Checkbox (left)","Product cell — 36×36px thumbnail + product name (10px bold)","Category — 'Women / Clothing' breadcrumb style (10px secondary)","Variants — 'N variants' (10px secondary)","Price Range — '₦18k–₦22k' (10px primary)","Stock badge — 'N in stock' (green 'bok') / 'Low: N' (red 'blow') / 'Out of stock' (red 'bcan')","Status toggle — info-coloured when active (ON), secondary when inactive (OFF); inline toggle in the row","Action buttons — 'Edit' (info-bordered), 'Variants' (secondary-bordered), 'Delete' (danger-bordered) — all 9px, 3px 7px padding","'Edit' → navigates to Add/Edit Product page","'Variants' → navigates to Variant + Image Manager","'Delete' → shows confirmation dialog; soft-deletes product (is_active=false)","Annotation: 'Status toggle = instant active/inactive toggle · Variants button → Variant & Image Manager · Delete = soft delete (is_active=false)'"]},
+      {num:"04",name:"Pagination",description:"Below the table. Product count summary (left) and page number buttons (right).",components:["Product count summary — 'Showing 1–5 of 248 products' (10px tertiary)","Page buttons — 1 (active, info bg), 2, 3, '…', 50 — each 24×24px, border, rounded","Prev/Next arrow buttons on mobile"]}
+    ],
+    states:[
+      "Default: all products shown, no filters active, page 1",
+      "Search active: table filtered to matching name/SKU products; count updates",
+      "Category/Status/Stock filter applied: table filtered; count updates",
+      "Status toggle flipped: row's toggle animates; product active state changes instantly via PATCH; no page reload",
+      "Row checkbox selected: bulk action dropdown becomes functional; count of selected rows shown",
+      "Delete clicked: confirmation dialog 'Are you sure you want to delete [product name]? This action cannot be undone.'",
+      "No results: 'No products match your search or filters' empty state with 'Clear Filters' CTA"
+    ],
+    dataRequirements:[
+      "GET /api/admin/products?q=&category=&status=&stock=&page=&limit= — paginated, filtered product list",
+      "Returns: { products[], total_count, page, total_pages }",
+      "PATCH /api/admin/products/:id — { is_active } → toggle active state",
+      "DELETE /api/admin/products/:id — soft delete (sets is_active=false, removes from buyer-facing pages)",
+      "GET /api/admin/products/export?[filters] — returns CSV download"
+    ],
+    designNotes:[
+      "Status toggle must use optimistic UI — animate immediately, revert on API error",
+      "The bulk action Apply button must be disabled when no rows are selected",
+      "Table rows should support keyboard navigation (arrow keys, space to toggle checkbox)",
+      "Export CSV should respect current filter state — export what the admin sees, not all 248 products",
+      "Product thumbnail in the table should show the first image of the first variant — fall back to a placeholder image"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_orders:{
+    purpose:"Admin order management table. Provides search, status/fulfillment/date-range filtering, status summary tabs, an orders table with inline status update, and CSV export.",
+    overview:"The Order Management page is the admin's primary order operations view. A filter bar at the top accepts a free-text search (by order ref or customer email), a status select, a fulfillment type select, and a date range (from/to date inputs). Below the filter bar, seven status summary tabs (All, Pending, Confirmed, Packed, Shipped, Delivered, Cancelled) each show a live count and filter the table when clicked. The orders table has 8 columns: Order Ref (monospace, info-coloured, clickable to detail), Customer, Date, Items, Total, Fulfillment tag (emoji + label), Status badge, and an Action cell with a 'View' button and an inline status-update dropdown. Pagination at the bottom. Export CSV in the header.",
+    sections:[
+      {num:"01",name:"Filter + Search Bar",description:"Horizontal row of filter controls. All applied together on 'Apply Filters' click.",components:["Search input — 'Order ref or customer email…', flex:2","Status select — All Statuses, Pending, Confirmed, Packed, Shipped, Delivered, Cancelled","Fulfillment select — Fulfillment, Delivery, Pickup","Date from input — type=date","Date to input — type=date","'Apply Filters' primary button"]},
+      {num:"02",name:"Status Summary Tabs",description:"Seven tab buttons with per-status counts. Active tab uses info colour. Clicking a tab filters the table to that status.",components:["Tabs: All (248), Pending (12), Confirmed (34), Packed (18), Shipped (28), Delivered (142), Cancelled (14)","Active tab — info border + bg; count badge uses bg-primary","Inactive — standard border; count badge uses bg-tertiary"]},
+      {num:"03",name:"Orders Table",description:"8-column table with alternating row backgrounds. Order Ref is clickable (navigates to Admin Order Detail). Action cell has View button and an inline status dropdown for quick updates.",components:["Table header — secondary bg, small-caps labels: Order Ref, Customer, Date, Items, Total, Fulfillment, Status, Action","Order row × N — alternating bg","Order Ref cell — monospace, info colour, cursor:pointer → navigates to admin order detail","Customer — name text","Date — 'DD Mon, HH:MM' timestamp, tertiary","Items — count, centred","Total — bold primary","Fulfillment tag — pill: '🚚 Delivery' or '🏪 Pickup'","Status badge — full 6-colour palette (Pending amber, Confirmed green, Packed purple, Shipped blue, Delivered dark green, Cancelled red)","Action cell: 'View' info-bordered button + inline status select dropdown ('Update…', Confirm, Pack, Ship, Cancel) — dropdown change triggers immediate PATCH","Pagination — 'Showing 1–6 of 248 orders', page buttons 1 (active), 2, 3, …, 42","Export CSV — secondary button in header nav bar","Annotation: 'Inline status dropdown updates immediately · Order ref links to full detail page · Export CSV uses exportReport()'"]}
+    ],
+    states:[
+      "Default: all orders, page 1, no filters active",
+      "Status tab selected: table filtered, count updates, URL updates with ?status=",
+      "Filter applied: table filtered by all active criteria",
+      "Inline status dropdown changed: immediate PATCH to update status; status badge animates to new colour; SSE pushes update to buyer's order detail page",
+      "No results: 'No orders match your filters' empty state with 'Clear Filters' CTA",
+      "Export CSV: downloads filtered result set (not all 248)"
+    ],
+    dataRequirements:[
+      "GET /api/admin/orders?q=&status=&fulfillment=&from=&to=&page= — paginated, filtered order list with status counts",
+      "PATCH /api/admin/orders/:id — { status, admin_note } → updates status, triggers SSE to buyer, sends status email",
+      "GET /api/admin/orders/export?[same filters] → CSV download"
+    ],
+    designNotes:[
+      "Inline status dropdown should validate allowed transitions server-side (state machine) and show an error toast if the transition is invalid",
+      "Order Ref column should truncate long refs with ellipsis and show the full ref on hover (title attribute)",
+      "The date range filter uses two separate date inputs rather than a date-range picker to keep the UI simple"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_ord_det:{
+    purpose:"Admin-facing order detail page. Provides status update controls, an admin-annotated timeline, order items, customer info, payment info, and refund processing.",
+    overview:"The Admin Order Detail page uses a two-column layout under the admin shell. The left column contains three sections: the Update Status card (new status dropdown, optional admin note, optional estimated delivery date and tracking URL, and an Update button), the Status History Timeline (same vertical dot-bar pattern as the buyer view, but with admin notes shown on completed steps), and the Order Items card. The right column has: Customer Info (avatar, name, email, delivery address), Payment Info (provider, transaction ID, amount, status), and a Refund card (shown only for Confirmed/Delivered orders). The page header shows the order reference, metadata, current status badge, and a Download Invoice button.",
+    sections:[
+      {num:"Header",name:"Page Header",description:"Order reference, date/type/provider/total sub-label, current status badge, Download Invoice button, Back to Orders link.",components:["Breadcrumb — 'Orders › ORD-XXXXXXXX'","Order ref — monospace H2","Sub-label — 'DD Mon YYYY · HH:MM · Delivery · Stripe · ₦36,000'","Status badge — colour-coded","'Download Invoice' primary button","'← Back to Orders' info link in the admin nav bar"]},
+      {num:"01",name:"Update Order Status",description:"Card with controls to advance the order through its state machine. New Status dropdown, optional Admin Note input, Update button. Below: optional Estimated Delivery Date and External Tracking URL inputs.",components:["'Update Status' section title","New Status dropdown — Packed, Out for Delivery, Ready for Pickup, Delivered, Cancelled (valid transitions only)","Admin Note input — optional free text, e.g. 'Packed and ready for dispatch'","'Update Status' primary button","Estimated Delivery Date — type=date, optional","External Tracking URL — text input, placeholder 'https://courier.com/track/…', optional","Annotation: 'State machine validates transitions · Setting est. delivery → shown to buyer · Tracking URL → clickable link on buyer's order page'"]},
+      {num:"02",name:"Status History Timeline",description:"Same vertical dot-bar pattern as buyer order detail, but with admin notes shown in the date line for completed steps.",components:["StatusStep × 5 — done (success dot ✓), active (info dot ●), upcoming (grey dot ○)","Completed step dates include admin note if set: '17 Mar 14:20 · Note: Packed for morning dispatch'","Vertical bar between steps — success colour for done→done, tertiary for active→upcoming"]},
+      {num:"03",name:"Order Items",description:"Card listing each ordered product with thumbnail, name, variant, qty, and price. Total Paid row at the bottom.",components:["OrderItem row × N — 44×44px thumbnail, name bold, variant+qty, price right-aligned","'Total Paid' summary row at bottom"]},
+      {num:"04",name:"Customer Info",description:"Right column. Buyer avatar (initials), name, email (info-coloured link), delivery address.",components:["32×32px avatar circle, info bg, initials","Name bold, email as info-coloured clickable link","Delivery address — street, city"]},
+      {num:"05",name:"Payment Info",description:"Right column below customer info. Provider, transaction ID (monospace), amount, payment status.",components:["Rows: Provider / Transaction ID (monospace) / Amount / Status","All read-only display fields"]},
+      {num:"06",name:"Refund",description:"Right column, shown only for Confirmed and Delivered orders. Refund amount input (pre-filled with order total), reason dropdown, 'Process Refund' danger button.",components:["'Process Refund' section title","Refund Amount input — pre-filled with order total, editable for partial refunds","Reason dropdown — Customer request, Damaged item, Wrong item, Other","'Process Refund' danger-bordered button — full width","Annotation: 'processRefund() · Calls provider refund API · Restores stock · Sets order to REFUNDED'"]}
+    ],
+    states:[
+      "Default: Update Status card ready; timeline reflects current status; refund card visible if status ∈ {Confirmed, Delivered}",
+      "Update clicked: status transitions; timeline animates to new step; SSE pushes update to buyer; email dispatched",
+      "Tracking URL saved: buyer's order page shows '🔗 Track Package' link",
+      "Estimated delivery saved: buyer sees 'Estimated: [date]' on active timeline step",
+      "Refund processed: order status → REFUNDED; stock restored; payment provider API called; refund confirmation email sent to buyer"
+    ],
+    dataRequirements:[
+      "GET /api/admin/orders/:id — full order with items, customer, address, payment, status history, tracking",
+      "PATCH /api/admin/orders/:id — { status, admin_note, estimated_delivery, tracking_url }",
+      "POST /api/admin/orders/:id/refund — { amount, reason } → calls Stripe/PayPal/Paystack refund API",
+      "GET /api/admin/orders/:id/invoice — PDF download"
+    ],
+    designNotes:[
+      "The New Status dropdown must only show valid next states per the order state machine — prevent invalid transitions in the UI as well as server-side",
+      "Admin note on a timeline step should be italicised and in tertiary colour to distinguish from the status label",
+      "The refund amount is pre-filled with the order total but should allow partial refund entry",
+      "Tracking URL field accepts any URL — consider validating format client-side before allowing save"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_flash:{
+    purpose:"Admin flash sale creation and management. Create new sales with name and time range, manage active LIVE sales (add/remove products, edit, end), and view upcoming and past sales in a table.",
+    overview:"The Flash Sale Manager has three distinct sections. At the top: a Create Flash Sale form card (sale name, start datetime, end datetime, Create button). Below: one bordered danger-coloured card per currently active sale, each with a LIVE badge, countdown timer, 5-column product grid with individual product remove buttons, an '+ Add Products' button, and Edit/End Sale buttons. At the bottom: a single table listing upcoming and past sales with status badges and Edit/Delete actions. A cron job (endExpiredFlashSales) runs every minute to auto-deactivate sales at their end_time.",
+    sections:[
+      {num:"01",name:"Create Flash Sale Form",description:"White card with a 3-column form: Sale Name (flex:2), Start Time (datetime-local), End Time (datetime-local), and a Create Sale button.",components:["Card title — 'New Flash Sale'","3-col grid: Sale Name input (wide), Start Time datetime-local, End Time datetime-local","'Create Sale' primary button","Annotation: 'endExpiredFlashSales() cron runs every minute · Auto-sets is_active=false at end_time'"]},
+      {num:"02",name:"Active Flash Sale Cards (LIVE)",description:"One danger-bordered card per active flash sale. Header: sale name, LIVE badge, countdown timer, Edit and End Sale buttons. Body: product count + date range, '+ Add Products' button, 5-column product mini-grid.",components:["Card — 1.5px danger border, rounded","Card header — danger bg: '⚡ [Sale Name]', 'LIVE' badge (bg-primary, danger text), countdown timer (monospace 'HH:MM:SS' or 'Nd HH:MM'), Edit + End Sale danger-bordered buttons","Card body — 'N products · Start → End' label, '+ Add Products' info-bordered button (right-aligned)","5-col product mini-grid — 60px image, name tl.h, price tl.h, × remove button (danger, top-right via absolute)","Multiple SaleCards stacked vertically; section hidden if no active sales"]},
+      {num:"03",name:"Upcoming + Past Sales Table",description:"A single table listing all non-active flash sales. Columns: Sale Name, Start, End, Items, Status badge, Actions.",components:["Table header: Sale Name, Start, End, Items, Status, Actions","Upcoming row — status badge 'Upcoming' (amber/pending)","Past/Ended row — status badge 'Ended' (red/cancelled)","Actions: Edit (info-bordered), Delete (danger-bordered)"]}
+    ],
+    states:[
+      "No active sales: Section 02 hidden; create form and past/upcoming table still shown",
+      "Sale created: new upcoming row appears in table; if start_time is now, it immediately becomes active and a SaleCard appears",
+      "End Sale clicked: confirmation dialog; on confirm, sale deactivated; SaleCard removed; row moves to past table with 'Ended' badge",
+      "Products added via '+ Add Products': product picker modal opens; selected products added to the sale's product list",
+      "Sale auto-ends at end_time (cron): SaleCard removed via SSE; buyer-facing flash page updates"
+    ],
+    dataRequirements:[
+      "GET /api/admin/flash-sales — returns { active[], upcoming[], past[] }",
+      "POST /api/admin/flash-sales — { name, start_time, end_time } → creates sale",
+      "PATCH /api/admin/flash-sales/:id — { name, start_time, end_time } or { is_active: false } to end",
+      "POST /api/admin/flash-sales/:id/products — { product_variant_ids[] } → add products",
+      "DELETE /api/admin/flash-sales/:id/products/:variant_id → remove product from sale",
+      "DELETE /api/admin/flash-sales/:id → hard delete (past sales only)"
+    ],
+    designNotes:[
+      "LIVE badge should have a subtle pulse animation (opacity 1↔0.5, 1.5s infinite) to signal real-time status",
+      "Countdown timer uses the same shared CountdownTimer component as the buyer-facing flash sales page",
+      "End Sale must show a confirmation dialog: 'End [Sale Name] now? This will remove it from the buyer-facing site immediately.'",
+      "sendNewsletterEmail() is auto-triggered on flash sale creation to notify subscribed buyers"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_customers:{
+    purpose:"Admin customer management table. Search, filter, and sort all buyer accounts. View a customer detail panel with stats and recent orders.",
+    overview:"Customer Management shows all registered buyers in a paginated table. A search input, a filter dropdown (All Customers, Newsletter Subscribers, Google Auth), and a sort dropdown (Newest, Most Orders, Highest Spent) sit above the table. The table has 8 columns: Customer (avatar initials + name), Email, Country, Joined, Orders, Total Spent, Newsletter (✓ or –), and a View action button. Clicking View expands a customer detail panel below the table showing the buyer's avatar, stats (Total Orders, Total Spent, Wishlists), recent orders, and auth method.",
+    sections:[
+      {num:"01",name:"Customers Table",description:"8-column paginated table. Avatar initials in info-coloured circle. Newsletter column shows ✓ (success) or – (tertiary).",components:["Filter row: search input + filter dropdown + sort dropdown + 'Export CSV' secondary button","Table header: Customer, Email, Country, Joined, Orders, Total Spent, Newsletter, Actions","Customer cell — 26×26px avatar circle (info bg, initials), name (10px bold)","Email — 9px secondary","Country — 2-letter code, tertiary","Joined — 'Mon YYYY'","Orders — count, centred","Total Spent — bold primary","Newsletter — '✓' success or '–' tertiary","Actions: 'View' info-bordered button → expands detail panel below"]},
+      {num:"02",name:"Customer Detail Panel",description:"Expanded panel shown below the table when 'View' is clicked. Avatar (44×44px), name, email, phone, country, join date, last active, auth method, 3-stat row, and recent orders list.",components:["Panel container — secondary bg, standard border, rounded, 14px padding","44×44px avatar circle, info bg, initials","Name (13px bold), email (10px info link), phone + country (10px secondary)","Sub-line — 'Joined [month year] · Last active [relative] · [Google Auth / Email]'","3-stat grid — Total Orders (14px bold) / Total Spent / Wishlists","'Recent Orders' sub-heading + 2 order rows: monospace ref, amount, status badge"]}
+    ],
+    states:[
+      "Default: all customers, sorted newest first",
+      "Search active: table filtered by name or email match",
+      "Filter 'Newsletter Subscribers': only is_subscribed=true buyers shown",
+      "Filter 'Google Auth': only is_google_auth=true buyers shown",
+      "View clicked: detail panel slides in below the row or at bottom of table; clicking another View closes the previous panel"
+    ],
+    dataRequirements:[
+      "GET /api/admin/customers?q=&filter=&sort=&page= — paginated buyer list",
+      "GET /api/admin/customers/:id — full customer profile, stats, and recent orders for detail panel"
+    ],
+    designNotes:[
+      "Avatar initials derived from first letter of each name word (e.g. 'John Adebayo' → 'JA')",
+      "The detail panel should open inline (not a modal) to keep the list context visible",
+      "Total Spent format should abbreviate large values: ₦248,000 → ₦248k for table readability",
+      "Export CSV should include all columns visible in the table plus customer ID"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_reviews:{
+    purpose:"Admin review moderation and management. Approve or reject pending reviews, view and delete all published reviews, and toggle the global review approval setting.",
+    overview:"Review Management has a global 'Require approval before publishing' toggle in the header row — when ON, all new reviews land in a Pending queue. Four filter tabs (Pending Approval, All Reviews, Published, Rejected) sit below the header. The main content area has two sections: Section 01 (Pending Reviews) shows warning-coloured cards, each with product thumbnail, product name, buyer, star rating, review comment, and Approve/Reject & Delete buttons. Section 02 (All Published Reviews) is a data table with columns: Product, Buyer, Rating (star display), Excerpt, Date, Helpful count, and a Delete action. calculateAverageRating() is called after every approve or delete.",
+    sections:[
+      {num:"Global",name:"Header Toggle",description:"'Require approval before publishing' toggle in the page header, with 'ON' / 'OFF' label.",components:["Label — 'Require approval before publishing:'","Toggle switch — info bg (ON) or secondary bg (OFF)","'ON' / 'OFF' text label in info or tertiary colour","Annotation: 'require_review_approval toggle updates SiteSettings instantly'"]},
+      {num:"Tabs",name:"Filter Tabs",description:"Four tab buttons controlling which reviews are displayed.",components:["Pending Approval (6) — warning-coloured when active","All Reviews (142) — default view","Published (136)","Rejected (0)"]},
+      {num:"01",name:"Pending Reviews (require approval = ON)",description:"Warning-coloured cards, one per pending review. Shows product thumbnail, product name, buyer name + date, star rating, full comment text, and Approve/Reject buttons.",components:["PendingReviewCard — warning bg, warning border, rounded, 12px padding","40×40px product thumbnail","Product name (11px bold), 'by [Buyer] · Verified purchase · [relative time]'","Star rating display","Full comment text (10px, line-height 1.6)","'✓ Approve' primary button + '✕ Reject & Delete' danger button","Section hidden when require_review_approval is OFF"]},
+      {num:"02",name:"All Published Reviews Table",description:"Paginated data table of all published reviews. Delete is the only action (admin cannot edit buyer reviews — only delete).",components:["Table header: Product, Buyer, Rating, Excerpt, Date, Helpful, Action","Product — 10px bold","Buyer — 9px secondary","Rating — star display (★★★★☆)","Excerpt — truncated to ~30 chars, 9px tertiary","Date — 'DD Mon'","Helpful — count, centred","Action: 'Delete' danger-bordered button","Annotation: 'Only admin can delete reviews · calculateAverageRating() called after approve/delete'"]}
+    ],
+    states:[
+      "Require approval ON: Pending tab shows queued reviews; cards rendered in Section 01",
+      "Require approval OFF: new reviews auto-publish; Pending Approval tab shows count 0",
+      "Approve clicked: card removed from Pending; review added to Published table; calculateAverageRating() called",
+      "Reject & Delete clicked: confirmation dialog; review permanently deleted; not moved to Published",
+      "Delete (published) clicked: confirmation dialog; review deleted; calculateAverageRating() called",
+      "Toggle flipped: immediate PATCH /api/settings; future reviews obey the new setting"
+    ],
+    dataRequirements:[
+      "GET /api/admin/reviews?status=pending|published|all — filtered review list",
+      "PATCH /api/admin/reviews/:id/approve — sets is_approved=true; triggers calculateAverageRating()",
+      "DELETE /api/admin/reviews/:id — hard delete; triggers calculateAverageRating()",
+      "PATCH /api/settings — { require_review_approval } → updates global setting"
+    ],
+    designNotes:[
+      "The require_review_approval toggle in the header must update settings immediately on flip — do not defer to a Save button",
+      "Approve/Reject actions should be optimistic: remove the card immediately, revert on API error",
+      "The 'Pending Approval (N)' tab count should update in real time when new reviews arrive via SSE"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_contact:{
+    purpose:"Admin unified communication hub combining the Contact Messages inbox (with reply capability) and the Live Chat sessions inbox (real-time SSE). Two panels side by side.",
+    overview:"Messages + Chat is a two-panel page. The left panel is the Contact Messages inbox: a filter tab row (All / Unread / Unreplied), a chronological message list (unread = info-tinted bg, bold name), and a selected-message detail + reply area. The right panel is the Live Chat sessions inbox: a list of active chat sessions each with an unread dot, visitor/buyer name, last message preview, and timestamp. Both panels are real-time via SSE. The two panels share the same admin page but are functionally independent.",
+    sections:[
+      {num:"01",name:"Contact Messages List",description:"Left panel. Filter tabs, then a scrollable list of contact message rows. Clicking a row loads the message detail and reply area.",components:["Panel heading — 'Contact Messages' + '8 unread' danger badge","Filter tabs — All (24), Unread (8), Unreplied (5)","Message row — 28×28px avatar circle (initials), name (bold if unread), subject truncated, timestamp, 'Unread' info badge + 'Unreplied' warning badge / 'Replied' success badge","Selected row — info-tinted background","Clicking row loads message in detail area"]},
+      {num:"02",name:"Message Detail + Reply",description:"Below or beside the message list in the left panel. Shows sender name/email/timestamp, 'Unreplied' status badge, subject, full message body in a secondary-bg card, and an admin reply textarea + Send Reply / Delete Message buttons.",components:["Sender — name (11px bold), email + timestamp (9px tertiary)","'Unreplied' status badge (amber)","Subject — 11px bold","Message body — secondary bg card, 10px secondary, line-height 1.7","'Admin Reply' section label","Reply textarea — 70px, resize:none, placeholder 'Type your reply to [name]…'","'Send Reply' primary button + 'Delete Message' danger button","Annotation: 'replyToContactMessage() · Sends email to sender · Sets is_replied=true + replied_at=NOW()'"]},
+      {num:"03",name:"Live Chat Sessions Inbox",description:"Right panel. Shows all active chat sessions. Each row: unread dot, visitor/buyer name, last message preview, timestamp. All real-time via SSE.",components:["Panel heading — 'Live Chat Sessions' + '5 active' danger badge","Chat row — 8px unread dot (info colour if unread), name (10px bold), last message preview (9px, ellipsis), timestamp (8px tertiary)","Clicking a chat row opens the full real-time chat thread","Annotation: 'Real-time SSE · getChatHistory() · sendChatMessage() · closeChatSession()'"]}
+    ],
+    states:[
+      "Unread contact message: info-tinted row bg, bold name, 'Unread' badge",
+      "Unreplied message: 'Unreplied' warning badge; cleared to 'Replied' success badge after admin sends reply",
+      "Send Reply clicked: email dispatched to sender; is_replied=true set; badge changes to 'Replied' immediately",
+      "Live chat unread: 8px info dot shown on chat row; cleared when admin opens the thread",
+      "New contact message arrives: SSE prepends to message list; unread badge count increments",
+      "New chat message arrives: SSE updates last message preview + timestamp on the chat row"
+    ],
+    dataRequirements:[
+      "GET /api/admin/messages?filter=all|unread|unreplied — contact message list",
+      "GET /api/admin/messages/:id — full message for detail view",
+      "POST /api/admin/messages/:id/reply — { body } → sends email, sets is_replied=true",
+      "DELETE /api/admin/messages/:id — hard delete",
+      "GET /api/admin/chat/sessions — active chat sessions list",
+      "GET /api/admin/chat/:session_id — chat history",
+      "POST /api/admin/chat/:session_id/messages — send chat message",
+      "SSE /api/admin/events — new_message, new_chat_message events"
+    ],
+    designNotes:[
+      "The two panels (Contact Messages and Live Chat) should be independently scrollable within a fixed-height container",
+      "The reply textarea should auto-focus when a message is selected",
+      "The message body should preserve line breaks from the original submission",
+      "Live chat sessions should sort by most recent activity (last message timestamp) DESC"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_reports:{
+    purpose:"Admin analytics and reporting hub. Provides a date-range-filtered sales report with KPI summary, daily revenue chart, top-10 products by revenue, and a traffic conversion funnel.",
+    overview:"The Reports page (Sales Report tab active by default) uses the admin layout with a sidebar where Sales Report, Traffic Analytics, and Inventory are separate nav items. The main area has a date range picker (from/to date inputs + Apply button) in the header, followed by four numbered sections: KPI Summary Cards, Revenue Chart, Top 10 Products table, and a Traffic Funnel with horizontal bar rows. The time range switcher on the revenue chart has 4 options (7D, 30D active, 90D, 1Y). Export CSV is in the admin nav bar.",
+    sections:[
+      {num:"01",name:"KPI Summary Cards",description:"Four white stat cards. Each: label (9px tertiary), large value (18px), and a change indicator vs previous period (success green).",components:["₦4.2M / Total Revenue / +18% vs prev period","248 / Total Orders / +12% vs prev period","₦16,935 / Avg Order Value / +5% vs prev period","89% / Payment Success Rate / +2% vs prev period"]},
+      {num:"02",name:"Revenue Chart (Daily)",description:"White card with a 30-bar daily revenue chart. 30D active by default. Today's bar highlighted in info colour. Date labels at the bottom (1 Mar, 8 Mar, 15 Mar, 22 Mar, Today). Time range switcher (7D / 30D / 90D / 1Y) top-right.",components:["Card title — 'Daily Revenue' + time range switcher (7D, 30D active, 90D, 1Y)","30-bar chart — bars of varying height percentage, secondary bg; today's bar in info bg + info border","X-axis date labels — '1 Mar', '8 Mar', '15 Mar', '22 Mar', 'Today'","Data from getSalesReport() with date range param"]},
+      {num:"03",name:"Top 10 Products",description:"Left card in a 2-column bottom grid. Ranked list of top products by revenue in the selected period.",components:["Card title — 'Top 10 Products' (only 5 shown in wireframe for space)","Row per product — rank circle (16×16px, secondary bg, rank number), product name (10px bold), units sold (9px tertiary), revenue right-aligned (10px bold)"]},
+      {num:"04",name:"Traffic Funnel",description:"Right card. Horizontal bar rows showing the conversion funnel from site visits to purchases.",components:["Row per stage — stage name (10px secondary), count + percentage (10px), horizontal progress bar (info colour fill)","Stages: Site Visits (8,420 · 100%) → Product Views (4,210 · 50%) → Added to Cart (1,680 · 20%) → Checkout Started (840 · 10%) → Purchases (692 · 8.2%)","Bar width = percentage of site visits","Annotation: 'getTrafficReport() · recordPageView() · recordCartAbandonment()'"]}
+    ],
+    states:[
+      "Default: 30D date range selected; all 4 sections populated",
+      "Date range applied: all sections refresh for the new period; KPI change % compares to the equivalent previous period",
+      "7D range: chart shows 7 bars; Top 10 and Funnel refresh for 7D data",
+      "Export CSV: downloads the full sales data for the current date range"
+    ],
+    dataRequirements:[
+      "GET /api/admin/reports/sales?from=&to= — { kpis{}, revenue_daily[], top_products[], traffic_funnel[] }",
+      "GET /api/admin/reports/sales/export?from=&to= → CSV download",
+      "Traffic funnel data: recordPageView() stores page views; recordCartAbandonment() stores cart events; getTrafficReport() aggregates"
+    ],
+    designNotes:[
+      "Revenue chart bars should have a subtle border-radius at the top only (2px 2px 0 0) for a polished look",
+      "KPI change percentage always shown in success green — if negative, show in danger red with ↓ arrow",
+      "The traffic funnel bar widths are relative to Site Visits (100%) — each bar is narrower than the one above",
+      "Top 10 Products rank circle uses a consistent secondary background regardless of rank position"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  admin_settings:{
+    purpose:"Global admin site settings. Controls site name, logo, favicon, currency, admin email, shipping fees, payment provider toggles, review approval, low-stock threshold, social links, and maintenance mode.",
+    overview:"Site Settings is a 2-column grid layout under the admin shell. Left column: General (site name, logo upload, favicon upload, currency dropdown, admin email), Shipping (standard fee, free threshold), Payment Providers (3 toggle rows). Right column: Reviews + Stock (require approval toggle, low-stock threshold), Social Links (4 URL inputs), Maintenance Mode (toggle + message textarea + ETA datetime). A single 'Save All Settings' primary button in the admin nav bar saves everything in one PATCH call.",
+    sections:[
+      {num:"01",name:"General Settings",description:"Left column top card. Site name, logo upload, favicon upload, currency dropdown, admin email.",components:["Site Name input — pre-filled 'WillOfGod'","Site Logo row — 48×48px current logo thumbnail, 'Upload New' secondary button, 'Remove' danger button","Favicon row — 32×32px current favicon thumbnail, 'Upload New' secondary button","Currency dropdown — 'NGN — Nigerian Naira (₦)', USD, GBP","Admin Email input — notification and system emails sent here"]},
+      {num:"02",name:"Shipping Settings",description:"Left column second card. Standard shipping fee and free shipping threshold.",components:["Standard Shipping Fee (₦) — number input, default 1500","Free Shipping Threshold (₦) — number input, default 10000","Annotation: 'Orders above this amount get free shipping automatically'"]},
+      {num:"03",name:"Payment Providers",description:"Left column third card. Three toggle rows, one per provider. Only enabled providers appear on the checkout page.",components:["Toggle row × 3 — provider name (10px bold) + config key label (9px tertiary) + toggle switch","Stripe (Card) — stripe_enabled — toggle ON","PayPal — paypal_enabled — toggle ON","Paystack (Card/Bank/USSD) — paystack_enabled — toggle ON","Annotation: 'Only enabled providers appear on checkout · Checkout page updates immediately'"]},
+      {num:"04",name:"Reviews + Stock",description:"Right column top card. Require review approval toggle and low stock alert threshold input.",components:["Require review approval toggle row — 'Reviews go to pending before publishing', toggle ON","Low Stock Alert Threshold input — number, default 10","Annotation: 'sendLowStockAlertsJob runs every 6h for variants below this number'"]},
+      {num:"05",name:"Social Links",description:"Right column second card. URL inputs for Facebook, Instagram, Twitter/X, YouTube.",components:["4 URL inputs — Facebook URL, Instagram URL, Twitter / X URL, YouTube URL","Each has a label + placeholder 'https://…'"]},
+      {num:"06",name:"Maintenance Mode",description:"Right column bottom card. Toggle to enable maintenance mode, a message textarea, and an estimated completion datetime.",components:["Maintenance Mode toggle row — 'Blocks all visitor + buyer access', danger sub-label, toggle OFF by default","Message textarea — shown to visitors during maintenance","Estimated completion datetime-local input","'Save Maintenance Settings' sub-button (or handled by global Save All)","Annotation: 'Changes take effect immediately on save · No server restart required · Redis cache invalidated'"]}
+    ],
+    states:[
+      "Default: all settings reflecting current DB values",
+      "Payment provider toggled: immediate visual change; saved on 'Save All Settings' click",
+      "Maintenance mode toggled ON: warning highlights the card; user warned that saving will block all buyers",
+      "Logo uploaded: new logo thumbnail shown immediately; old logo removed on Save",
+      "'Save All Settings' clicked: single PATCH /api/settings with all changed values; success toast shown"
+    ],
+    dataRequirements:[
+      "GET /api/admin/settings — all current setting values",
+      "PATCH /api/admin/settings — { site_name, currency, admin_email, shipping_fee, free_shipping_threshold, stripe_enabled, paypal_enabled, paystack_enabled, require_review_approval, low_stock_threshold, social_links{}, maintenance_mode, maintenance_message, maintenance_eta }",
+      "POST /api/admin/settings/logo — multipart/form-data → uploads logo, returns new logo_url",
+      "POST /api/admin/settings/favicon — multipart/form-data → uploads favicon, returns new favicon_url"
+    ],
+    designNotes:[
+      "A single 'Save All Settings' button in the header saves everything — avoid per-section save buttons to reduce API call complexity",
+      "The maintenance mode toggle should show a warning confirmation: 'Enabling maintenance mode will block all buyers. Continue?' before saving",
+      "Currency change takes effect immediately for new sessions — existing sessions may show old currency until next page load",
+      "Logo and favicon uploads should preview the new image immediately (FileReader) before the full settings save"
+    ]
   }
 };
 
@@ -3950,30 +4648,2549 @@ function WireframeOrderDetail(){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// SHARED ACCOUNT SIDEBAR (used by all 9 buyer account wireframes)
+// ══════════════════════════════════════════════════════════════════════════════
+function WfAccountSidebar({active}){
+  const links=[
+    {id:"pd",label:"Profile"},
+    {id:"mo",label:"My Orders"},
+    {id:"sa",label:"Addresses"},
+    {id:"wl",label:"Wishlists"},
+    {id:"rv",label:"Recently Viewed"},
+    {id:"mr",label:"My Reviews"},
+    {id:"ss",label:"Saved Searches"},
+    {id:"ni",label:"Notifications",badge:"3"},
+    {id:"np",label:"Notif. Prefs"},
+  ];
+  return(
+    <div style={{width:190,flexShrink:0,borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg0}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <div style={{width:38,height:38,borderRadius:"50%",background:T.blueLight,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:13,fontWeight:700,color:T.blueText,flexShrink:0}}>JA</div>
+        <div>
+          <div style={{fontSize:11,fontWeight:600,color:T.text0}}>John Adebayo</div>
+          <div style={{fontSize:9,color:T.text3}}>Buyer · Lagos, NG</div>
+        </div>
+      </div>
+      {links.map(({id,label,badge})=>(
+        <div key={id} style={{padding:"8px 10px",borderRadius:T.r.md,marginBottom:3,
+          background:active===id?T.blueLight:"transparent",cursor:"pointer",
+          display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:10,color:active===id?T.blueText:T.text2,fontWeight:active===id?600:400}}>{label}</span>
+          {badge&&<span style={{background:T.redLight,color:T.red,borderRadius:T.r.full,
+            padding:"0 5px",fontSize:8,fontWeight:700}}>{badge}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WfAccountLayout({active,children}){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <div style={{display:"flex",alignItems:"center",padding:"9px 24px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg0}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text0,minWidth:80}}>WillOfGod</div>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:10,color:T.text2}}>My Account ▾</span>
+      </div>
+      <div style={{display:"flex",alignItems:"stretch"}}>
+        <WfAccountSidebar active={active}/>
+        <div style={{flex:1,padding:16,overflowX:"hidden",background:T.bg1}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: PROFILE DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeProfileDashboard(){
+  return(
+    <WfAccountLayout active="pd">
+      {/* Profile Card */}
+      <WfSection num="01" label="Profile Card">
+        <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+          padding:16,marginBottom:14,display:"flex",gap:18,alignItems:"flex-start"}}>
+          <div style={{position:"relative",flexShrink:0}}>
+            <div style={{width:72,height:72,borderRadius:"50%",background:T.blueLight,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:24,fontWeight:700,color:T.blueText,border:`1px solid ${T.blueBorder}`}}>JA</div>
+            <div style={{position:"absolute",bottom:0,right:0,width:20,height:20,
+              borderRadius:"50%",background:T.bg2,border:`1px solid ${T.border0}`,
+              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+              <span style={{fontSize:9,color:T.text3}}>✎</span>
+            </div>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text0,marginBottom:3}}>John Adebayo</div>
+            <div style={{fontSize:10,color:T.text3,marginBottom:2}}>john@email.com</div>
+            <div style={{fontSize:10,color:T.text3,marginBottom:9}}>+234 801 234 5678 · Nigeria</div>
+            <div style={{display:"flex",gap:7}}>
+              <WfTag>Member since Jan 2025</WfTag>
+              <span style={{background:T.greenLight,color:T.green,borderRadius:T.r.full,
+                padding:"2px 10px",fontSize:9,fontWeight:600}}>● Verified</span>
+            </div>
+          </div>
+          <WfBtn primary style={{fontSize:9,padding:"5px 12px",whiteSpace:"nowrap"}}>Edit Profile</WfBtn>
+        </div>
+        <WfAnnot>Avatar edit pencil opens file picker · Avatar becomes more visible on hover · Unverified accounts show ⚠ Unverified badge + resend prompt</WfAnnot>
+      </WfSection>
+
+      {/* Stats Row */}
+      <WfSection num="02" label="Stats Row">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 0"}}>
+          {[["12","Total Orders"],["₦248k","Total Spent"],["3","Wishlists"],["8","Reviews Written"]].map(([v,l])=>(
+            <div key={l} style={{background:T.bg2,borderRadius:T.r.md,padding:13,textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:700,color:T.text0}}>{v}</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:3}}>{l}</div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>All counts fetched fresh on every dashboard load from GET /api/account/dashboard — never stale</WfAnnot>
+      </WfSection>
+
+      {/* Quick Links */}
+      <WfSection num="03" label="Quick Links Grid">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,padding:"14px 0"}}>
+          {[["📦","My Orders","12 total, 2 pending"],["📍","Addresses","3 saved"],["♡","Wishlists","3 lists, 24 items"],["⭐","My Reviews","8 written"],["🔔","Notifications","3 unread"],["🔍","Saved Searches","5 alerts"]].map(([ico,t,sub])=>(
+            <div key={t} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+              padding:"14px 10px",textAlign:"center",cursor:"pointer"}}>
+              <div style={{fontSize:22,marginBottom:6}}>{ico}</div>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:3}}>{t}</div>
+              <div style={{fontSize:9,color:T.text3}}>{sub}</div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>Unread count on Notifications links to Notifications badge in sidebar · Count data from single dashboard API call</WfAnnot>
+      </WfSection>
+
+      {/* Recent Activity */}
+      <WfSection num="04" label="Recent Activity">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"14px 0"}}>
+          <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:10}}>Recent Orders</div>
+            {[["ORD-20260317","Confirmed","₦36,000"],["ORD-20260310","Shipped","₦22,000"]].map(([ref,status,amt])=>(
+              <div key={ref} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                marginBottom:9,paddingBottom:9,borderBottom:`1px solid ${T.border2}`}}>
+                <div>
+                  <div style={{fontSize:10,fontFamily:T.mono,color:T.text0}}>{ref}</div>
+                  <div style={{fontSize:9,color:T.text3}}>{status}</div>
+                </div>
+                <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{amt}</div>
+              </div>
+            ))}
+            <div style={{fontSize:10,color:T.blueText,cursor:"pointer"}}>View all orders →</div>
+          </div>
+          <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:8}}>Danger Zone</div>
+            <div style={{fontSize:10,color:T.text1,lineHeight:1.6,marginBottom:12}}>
+              Permanently delete your account and all associated data.
+            </div>
+            <button style={{fontSize:10,color:T.red,background:"transparent",
+              border:`1px solid #FECACA`,borderRadius:T.r.md,padding:"6px 12px",
+              cursor:"pointer",width:"100%"}}>Delete Account</button>
+            <WfAnnot>Requires password confirmation modal · Cancels pending orders before deletion</WfAnnot>
+          </div>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: EDIT PROFILE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeEditProfile(){
+  return(
+    <WfAccountLayout active="pd">
+      {/* Avatar Upload */}
+      <WfSection num="01" label="Avatar Upload">
+        <div style={{display:"flex",alignItems:"center",gap:18,padding:"14px 0"}}>
+          <div style={{position:"relative",flexShrink:0}}>
+            <div style={{width:80,height:80,borderRadius:"50%",background:T.blueLight,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:28,fontWeight:700,color:T.blueText,border:`1px solid ${T.blueBorder}`}}>JA</div>
+            <div style={{position:"absolute",bottom:0,right:0,width:24,height:24,
+              borderRadius:"50%",background:T.bg0,border:`1px solid ${T.border0}`,
+              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:13}}>📷</div>
+          </div>
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:7}}>Profile Photo</div>
+            <div style={{display:"flex",gap:8,marginBottom:6}}>
+              <WfBtn primary style={{fontSize:9,padding:"5px 12px"}}>Upload Photo</WfBtn>
+              <WfBtn style={{fontSize:9,padding:"5px 12px"}}>Remove</WfBtn>
+            </div>
+            <div style={{fontSize:9,color:T.text3}}>JPG, PNG or WebP · Max 2MB · Square crop applied</div>
+          </div>
+        </div>
+        <WfAnnot>processImage() resizes to 150×150 · stored via storage.service.js · Preview shown immediately via FileReader before upload</WfAnnot>
+      </WfSection>
+
+      {/* Personal Details */}
+      <WfSection num="02" label="Personal Details Form">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,padding:"14px 0"}}>
+          {[
+            {label:"Full name",value:"John Adebayo",disabled:false},
+            {label:"Email address",value:"john@email.com",disabled:true,note:"(not editable here)"},
+            {label:"Phone number",value:"+234 801 234 5678",disabled:false},
+          ].map(({label,value,disabled,note})=>(
+            <div key={label}>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                {label} {note&&<span style={{fontSize:9,fontWeight:400,color:T.text3}}>{note}</span>}
+              </label>
+              <input readOnly defaultValue={value} style={{
+                width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,
+                opacity:disabled?0.5:1,cursor:disabled?"not-allowed":"text",color:T.text0}}/>
+            </div>
+          ))}
+          <div>
+            <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Country</label>
+            <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+              padding:"8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,color:T.text0}}>
+              <option>Nigeria</option><option>Ghana</option><option>South Africa</option>
+            </select>
+          </div>
+        </div>
+        <WfAnnot>Email change requires a separate verified-email-change flow · Email input uses HTML disabled attribute, not just CSS</WfAnnot>
+      </WfSection>
+
+      {/* Change Password */}
+      <WfSection num="03" label="Change Password">
+        <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+          padding:16,marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:14}}>Change Password</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:10}}>
+            {["Current password","New password","Confirm new password"].map(label=>(
+              <div key={label}>
+                <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{label}</label>
+                <input readOnly placeholder="••••••••" type="password" style={{
+                  width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                  padding:"8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+              </div>
+            ))}
+          </div>
+          {/* Strength bar — medium */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:3,marginBottom:5}}>
+            {[T.green,T.green,"#F59E0B",T.bg3].map((c,i)=>(
+              <div key={i} style={{height:3,background:c,borderRadius:99}}/>
+            ))}
+          </div>
+          <div style={{fontSize:9,color:"#B45309"}}>Medium — add a special character</div>
+        </div>
+        <div style={{display:"flex",gap:9,justifyContent:"flex-end"}}>
+          <WfBtn style={{fontSize:11}}>Cancel</WfBtn>
+          <WfBtn primary style={{fontSize:11}}>Save Changes</WfBtn>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: SAVED ADDRESSES
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeSavedAddresses(){
+  const addresses=[
+    {label:"Home",addr:"12 Marina Street, Lagos Island, Lagos State, Nigeria",def:true},
+    {label:"Office",addr:"45 Victoria Island Boulevard, Victoria Island, Lagos",def:false},
+    {label:"Parents",addr:"8 Awolowo Crescent, Ikoyi, Lagos State, Nigeria",def:false},
+  ];
+  return(
+    <WfAccountLayout active="sa">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Saved Addresses</div>
+        <WfBtn primary style={{fontSize:10}}>+ Add New Address</WfBtn>
+      </div>
+
+      <WfSection num="01" label="Address Cards Grid">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,padding:"14px 0"}}>
+          {addresses.map(({label,addr,def})=>(
+            <div key={label} style={{
+              border:`${def?"1.5px":"1px"} solid ${def?T.blueBorder:T.border1}`,
+              borderRadius:T.r.lg,padding:14,position:"relative"}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                <span style={{fontSize:12,fontWeight:600,color:def?T.blueText:T.text0}}>{label}</span>
+                {def&&<span style={{background:T.greenLight,color:T.green,borderRadius:T.r.full,
+                  padding:"1px 7px",fontSize:8,fontWeight:600}}>Default</span>}
+              </div>
+              <div style={{fontSize:10,color:T.text1,lineHeight:1.65,marginBottom:11}}>{addr}</div>
+              <div style={{display:"flex",gap:7}}>
+                {!def&&<button style={{fontSize:9,color:T.blueText,background:"transparent",
+                  border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Set Default</button>}
+                <button style={{fontSize:9,color:T.text2,background:"transparent",
+                  border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Edit</button>
+                <button style={{fontSize:9,color:T.red,background:"transparent",
+                  border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Delete</button>
+              </div>
+            </div>
+          ))}
+          {/* + placeholder card */}
+          <div style={{border:`1px dashed ${T.border0}`,borderRadius:T.r.lg,
+            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+            cursor:"pointer",minHeight:130}}>
+            <div style={{fontSize:24,color:T.text3,marginBottom:7}}>+</div>
+            <div style={{fontSize:11,color:T.text3}}>Add New Address</div>
+          </div>
+        </div>
+        <WfAnnot>Default address has 1.5px info border + Default success badge · Default pre-selected at checkout · Set Default is atomic server-side</WfAnnot>
+      </WfSection>
+
+      <WfSection num="02" label="Add Address Form (inline expanded — info-coloured card)">
+        <div style={{border:`1px solid ${T.blueBorder}`,borderRadius:T.r.lg,
+          padding:16,background:T.blueLight,marginTop:8}}>
+          <div style={{fontSize:12,fontWeight:600,color:T.blueText,marginBottom:14}}>New Address</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+            {[["Label","e.g. Home"],["Street","Street address"],["City","City"],["State","State"],["Country","Country"],["Postal Code","ZIP / Postal code"]].map(([l,p])=>(
+              <div key={l}>
+                <label style={{fontSize:10,fontWeight:600,color:T.blueText,marginBottom:5,display:"block"}}>{l}</label>
+                <input readOnly placeholder={p} style={{width:"100%",border:`1px solid ${T.blueBorder}`,
+                  borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:"rgba(255,255,255,0.7)",
+                  fontFamily:T.font,color:T.blueText}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,marginBottom:14}}>
+            <input type="checkbox" readOnly style={{width:12,height:12}}/>
+            <span style={{fontSize:10,color:T.blueText}}>Set as default address</span>
+          </div>
+          <div style={{display:"flex",gap:9}}>
+            <WfBtn primary style={{fontSize:10}}>Save Address</WfBtn>
+            <WfBtn style={{fontSize:10}}>Cancel</WfBtn>
+          </div>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: WISHLISTS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeWishlists(){
+  return(
+    <WfAccountLayout active="wl">
+      <WfSection num="01" label="Wishlist Tabs + List Actions">
+        <div style={{paddingTop:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+              {[["All Items (24)",true],["Birthday List (8)",false],["Christmas List (12)",false],["Daily Wear (4)",false]].map(([t,active])=>(
+                <button key={t} style={{padding:"5px 12px",border:`1px solid ${active?T.blueBorder:T.border0}`,
+                  background:active?T.blueLight:"transparent",borderRadius:T.r.md,
+                  fontSize:10,color:active?T.blueText:T.text1,cursor:"pointer"}}>{t}</button>
+              ))}
+              <button style={{padding:"5px 12px",border:`1px dashed ${T.border0}`,borderRadius:T.r.md,
+                fontSize:10,color:T.text3,cursor:"pointer",background:"transparent"}}>+ New List</button>
+            </div>
+            <div style={{display:"flex",gap:7}}>
+              <WfBtn style={{fontSize:9,padding:"4px 10px"}}>Rename List</WfBtn>
+              <button style={{fontSize:9,color:T.red,background:"transparent",border:`1px solid #FECACA`,
+                borderRadius:T.r.md,padding:"4px 10px",cursor:"pointer"}}>Delete List</button>
+            </div>
+          </div>
+          <WfAnnot>createWishlist / updateWishlist / deleteWishlist / moveItemBetweenWishlists · 'All Items' is a virtual view — not a real DB record</WfAnnot>
+        </div>
+      </WfSection>
+
+      <WfSection num="02" label="Wishlist Product Grid (4-col)">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 0"}}>
+          {[1,2,3,4,5,6,7,8].map(i=>(
+            <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+              <div style={{position:"relative"}}>
+                <WfImg height={110} style={{borderRadius:0}}/>
+                <div style={{position:"absolute",top:6,right:6,width:20,height:20,
+                  background:T.bg0,border:`1px solid ${T.border0}`,borderRadius:"50%",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  cursor:"pointer",fontSize:12,color:T.red}}>×</div>
+              </div>
+              <div style={{padding:8}}>
+                <WfLine w="80%" h={10} mb={3}/>
+                <WfLine w="50%" h={7} mb={7}/>
+                <div style={{display:"flex",gap:5}}>
+                  <WfBtn primary style={{flex:1,fontSize:8,padding:"4px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                  <button style={{fontSize:8,color:T.text3,background:"transparent",
+                    border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"4px 7px",cursor:"pointer"}}>Move ↗</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>× removes item from current list · Move ↗ opens list-picker dropdown (excludes current list) · Out-of-stock items show greyed 'Out of Stock' button</WfAnnot>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: RECENTLY VIEWED
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeRecentlyViewed(){
+  return(
+    <WfAccountLayout active="rv">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Recently Viewed</div>
+          <div style={{fontSize:10,color:T.text3,marginTop:2}}>Last 20 products you browsed</div>
+        </div>
+        <button style={{fontSize:9,color:T.red,background:"transparent",
+          border:`1px solid #FECACA`,borderRadius:T.r.md,padding:"5px 12px",cursor:"pointer"}}>Clear History</button>
+      </div>
+
+      <WfSection num="01" label="Date-Grouped Product Grid (Today / Yesterday / This Week)">
+        <div style={{paddingTop:8}}>
+          {[["Today",4,[2,4,1,3]],["Yesterday",4,[1,1,1,1]],["This Week",4,[3,3,3,3]]].map(([group,count,hrs])=>(
+            <div key={group} style={{marginBottom:18}}>
+              {/* Date group separator */}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <span style={{fontSize:9,color:T.text3,fontWeight:600,letterSpacing:"0.08em",
+                  textTransform:"uppercase",whiteSpace:"nowrap"}}>{group}</span>
+                <div style={{height:1,flex:1,background:T.border1}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9}}>
+                {Array(count).fill(0).map((_,i)=>(
+                  <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,overflow:"hidden"}}>
+                    <WfImg height={90} style={{borderRadius:0}}/>
+                    <div style={{padding:8}}>
+                      <WfLine w="80%" h={10} mb={3}/>
+                      <WfLine w="55%" h={7} mb={5}/>
+                      <div style={{fontSize:9,color:T.text3,marginBottom:5}}>
+                        Viewed {hrs[i]}h ago
+                      </div>
+                      <WfBtn primary style={{width:"100%",fontSize:8,padding:"4px 0",justifyContent:"center"}}>Add to Cart</WfBtn>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <WfAnnot>recordProductView() upserts viewed_at · Max 20 items (oldest evicted on 21st view) · Anonymous visitors tracked via cookie · Merged to account on login · Date group separator shared with New Arrivals page</WfAnnot>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: MY REVIEWS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeMyReviews(){
+  const reviews=[
+    {product:"Classic Tailored Blazer",rating:5,comment:"Absolutely love this blazer! Perfect fit and great quality fabric. Would definitely buy again.",date:"15 Mar 2026",approved:true,helpful:12,editing:false},
+    {product:"Slim Fit Chinos",rating:4,comment:"Good quality chinos, fits well. The colour is slightly different from the photos but still nice.",date:"08 Mar 2026",approved:false,helpful:3,editing:true},
+  ];
+  return(
+    <WfAccountLayout active="mr">
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:14}}>
+        My Reviews <span style={{fontSize:12,fontWeight:400,color:T.text3}}>(8 total)</span>
+      </div>
+
+      <WfSection num="01" label="Review Cards (Published and Pending states)">
+        <div style={{paddingTop:8}}>
+          {reviews.map((rev,i)=>(
+            <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:11}}>
+              <div style={{display:"flex",gap:12,marginBottom:10}}>
+                <WfImg height={48} style={{width:48,flexShrink:0,borderRadius:T.r.md}}/>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:3}}>{rev.product}</div>
+                      <div style={{fontSize:12,color:T.yellow,letterSpacing:1}}>
+                        {"★".repeat(rev.rating)}{"☆".repeat(5-rev.rating)}
+                      </div>
+                    </div>
+                    {rev.approved
+                      ?<span style={{background:T.greenLight,color:T.green,borderRadius:T.r.sm,padding:"2px 8px",fontSize:9,fontWeight:600}}>Published</span>
+                      :<span style={{background:"#FFFBEB",border:"1px solid #FDE68A",color:"#B45309",borderRadius:T.r.sm,padding:"2px 8px",fontSize:9,fontWeight:600}}>Pending Approval</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {rev.editing ? (
+                /* Inline edit form */
+                <div style={{background:T.bg2,border:`1px solid ${T.border1}`,borderRadius:T.r.md,padding:12,marginBottom:10}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:9}}>Edit Review</div>
+                  <div style={{display:"flex",gap:5,marginBottom:9}}>
+                    {["★","★","★","★","☆"].map((s,idx)=>(
+                      <span key={idx} style={{fontSize:22,color:idx<4?T.yellow:T.text3,cursor:"pointer"}}>{s}</span>
+                    ))}
+                  </div>
+                  <textarea readOnly defaultValue={rev.comment}
+                    style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                    padding:"8px 10px",fontSize:10,height:62,resize:"none",
+                    fontFamily:T.font,marginBottom:10,color:T.text1,background:T.bg0}}/>
+                  <div style={{display:"flex",gap:7}}>
+                    <WfBtn primary style={{fontSize:9,padding:"5px 12px"}}>Save Changes</WfBtn>
+                    <WfBtn style={{fontSize:9,padding:"5px 12px"}}>Cancel</WfBtn>
+                  </div>
+                </div>
+              ) : (
+                <div style={{fontSize:10,color:T.text1,lineHeight:1.65,marginBottom:10}}>{rev.comment}</div>
+              )}
+
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:9,color:T.text3}}>{rev.date} · {rev.helpful} found helpful</div>
+                {!rev.editing&&(
+                  <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                    border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"2px 9px",cursor:"pointer"}}>Edit</button>
+                )}
+              </div>
+            </div>
+          ))}
+          <WfAnnot>Buyers can edit (not delete) · Editing a published review resets it to Pending Approval when require_review_approval=true · Interactive star selector on hover + click · Only admin can delete reviews</WfAnnot>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: SAVED SEARCHES
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeSavedSearches(){
+  const searches=[
+    {q:"Blue blazer women",filters:"Women · ₦10k–₦30k · Size M",saved:"14 Mar 2026",matches:3,active:true},
+    {q:"Running shoes",filters:"Footwear · In Stock · Size 42",saved:"02 Mar 2026",matches:0,active:true},
+    {q:"Cotton formal shirt white",filters:"Men · Under ₦15k",saved:"18 Feb 2026",matches:7,active:false},
+  ];
+  return(
+    <WfAccountLayout active="ss">
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:4}}>Saved Searches & Alerts</div>
+        <div style={{fontSize:10,color:T.text3}}>Get notified when new products match your saved searches</div>
+      </div>
+
+      <WfSection num="01" label="Saved Search Cards">
+        <div style={{paddingTop:8}}>
+          {searches.map((s,i)=>(
+            <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:9}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:4}}>"{s.q}"</div>
+                  <div style={{fontSize:9,color:T.text3,marginBottom:3}}>Filters: {s.filters}</div>
+                  <div style={{fontSize:9,color:T.text3}}>Saved on {s.saved}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  {s.matches>0&&(
+                    <span style={{background:T.greenLight,color:T.green,borderRadius:T.r.sm,
+                      padding:"2px 8px",fontSize:9,fontWeight:600}}>{s.matches} new matches</span>
+                  )}
+                  {/* Toggle switch */}
+                  <div style={{width:36,height:20,borderRadius:99,position:"relative",cursor:"pointer",
+                    background:s.active?T.blue:T.bg3,border:`1px solid ${s.active?T.blueBorder:T.border0}`}}>
+                    <div style={{position:"absolute",top:3,width:14,height:14,background:"#fff",
+                      borderRadius:"50%",[s.active?"right":"left"]:3}}/>
+                  </div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <WfBtn primary style={{fontSize:9,padding:"4px 11px"}}>Run Search</WfBtn>
+                <button style={{fontSize:9,color:T.red,background:"transparent",
+                  border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"4px 9px",cursor:"pointer"}}>Delete Alert</button>
+              </div>
+            </div>
+          ))}
+          <WfAnnot>checkSavedSearchMatches() runs when admin adds a new product · Notifies via email + SSE · Toggle is optimistic UI · Match count clears after 'Run Search' is clicked</WfAnnot>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: NOTIFICATIONS INBOX
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeNotifications(){
+  const notifs=[
+    {icon:"📦",title:"Your order has been shipped",msg:"ORD-20260310-B9K2M7QP is on its way. Tracking: TRK-20260310-X8Y4Z2WV",time:"2 hours ago",read:false},
+    {icon:"💳",title:"Payment confirmed",msg:"₦36,000 payment for ORD-20260317-A3F8K2QZ was successful via Stripe.",time:"5 hours ago",read:false},
+    {icon:"⚡",title:"Flash Sale: Summer Clearance",msg:"Items in your wishlist are now on sale — up to 30% off. Limited stock!",time:"Yesterday",read:false},
+    {icon:"📦",title:"Order delivered",msg:"ORD-20260301-C4X8N3WL has been delivered. How was your experience?",time:"2 weeks ago",read:true},
+    {icon:"🔍",title:"New match for \"Blue blazer women\"",msg:"3 new products match your saved search. Check them out!",time:"3 weeks ago",read:true},
+  ];
+  return(
+    <WfAccountLayout active="ni">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Notifications</div>
+          <div style={{fontSize:10,color:T.text3,marginTop:2}}>3 unread</div>
+        </div>
+        <button style={{fontSize:9,color:T.blueText,background:"transparent",
+          border:`1px solid ${T.blueBorder}`,borderRadius:T.r.md,padding:"5px 12px",cursor:"pointer"}}>Mark All Read</button>
+      </div>
+
+      {/* Filter tabs */}
+      <div style={{display:"flex",gap:7,marginBottom:14,flexWrap:"wrap"}}>
+        {[["All (18)",true],["Unread (3)",false],["Orders",false],["Payments",false],["Promotions",false]].map(([t,active])=>(
+          <button key={t} style={{padding:"4px 11px",border:`1px solid ${active?T.blueBorder:T.border0}`,
+            background:active?T.blueLight:"transparent",borderRadius:T.r.md,
+            fontSize:10,color:active?T.blueText:T.text1,cursor:"pointer"}}>{t}</button>
+        ))}
+      </div>
+
+      <WfSection num="01" label="Notification Items (unread = info bg + bold + dot indicator)">
+        <div>
+          {notifs.map((n,i)=>(
+            <div key={i} style={{
+              display:"flex",gap:11,padding:"11px 0",
+              borderBottom:`1px solid ${T.border2}`,
+              background:!n.read?T.blueLight:"transparent",
+              margin:"0 -16px",paddingLeft:16,paddingRight:16
+            }}>
+              {/* Unread dot */}
+              <div style={{width:6,flexShrink:0,display:"flex",alignItems:"flex-start",paddingTop:6}}>
+                {!n.read&&<div style={{width:6,height:6,borderRadius:"50%",background:T.blue}}/>}
+              </div>
+              {/* Icon circle */}
+              <div style={{width:32,height:32,borderRadius:"50%",background:T.bg2,
+                border:`1px solid ${T.border0}`,display:"flex",alignItems:"center",
+                justifyContent:"center",flexShrink:0,fontSize:14}}>{n.icon}</div>
+              {/* Content */}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:n.read?400:600,color:T.text0,marginBottom:3}}>
+                  {n.title}
+                </div>
+                <div style={{fontSize:10,color:T.text1,lineHeight:1.55,marginBottom:4,
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.msg}</div>
+                <div style={{fontSize:9,color:T.text3}}>{n.time}</div>
+              </div>
+              {/* Mark read */}
+              {!n.read&&<button style={{fontSize:8,color:T.text3,background:"transparent",
+                border:"none",cursor:"pointer",whiteSpace:"nowrap",alignSelf:"flex-start",
+                marginTop:4,flexShrink:0}}>Mark read</button>}
+            </div>
+          ))}
+          <WfAnnot>Persistent notification history stored in DB · SSE pushes new notifications in real time (prepend with slide-down animation) · markNotificationRead supports id='all'</WfAnnot>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: NOTIFICATION PREFERENCES
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeNotificationPrefs(){
+  const prefs=[
+    {icon:"📦",title:"Order status updates",desc:"Confirmations, shipping, delivery, and cancellation emails",on:true},
+    {icon:"💳",title:"Payment receipts",desc:"Receipts and refund confirmation emails",on:true},
+    {icon:"⚡",title:"Flash sale alerts",desc:"Notifications when flash sales start that match your interests",on:true},
+    {icon:"🔍",title:"Saved search alerts",desc:"Notifications when new products match your saved searches",on:true},
+    {icon:"📢",title:"Promotional emails",desc:"Discount codes, special offers, and seasonal campaigns",on:false},
+  ];
+  return(
+    <WfAccountLayout active="np">
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:4}}>Notification Preferences</div>
+      <div style={{fontSize:10,color:T.text3,marginBottom:16}}>Choose which emails you receive from us</div>
+
+      <WfSection num="01" label="Email Notification Toggles">
+        <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:2,marginBottom:14}}>
+          {prefs.map(({icon,title,desc,on},i)=>(
+            <div key={title} style={{
+              display:"flex",alignItems:"center",gap:14,padding:"13px 14px",
+              borderBottom:i<prefs.length-1?`1px solid ${T.border2}`:"none"
+            }}>
+              <div style={{width:38,height:38,borderRadius:T.r.md,background:T.bg2,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:18,flexShrink:0}}>{icon}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:2}}>{title}</div>
+                <div style={{fontSize:10,color:T.text3,lineHeight:1.5}}>{desc}</div>
+              </div>
+              {/* Toggle switch */}
+              <div style={{width:36,height:20,borderRadius:99,position:"relative",cursor:"pointer",
+                flexShrink:0,background:on?T.blue:T.bg3,border:`1px solid ${on?T.blueBorder:T.border0}`}}>
+                <div style={{position:"absolute",top:3,width:14,height:14,
+                  background:"#fff",borderRadius:"50%",[on?"right":"left"]:3}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>Changes saved only on 'Save Preferences' click — not auto-saved on toggle · Order updates + Payment receipts could be marked required (non-toggleable) as transactional emails</WfAnnot>
+      </WfSection>
+
+      <WfSection num="02" label="Newsletter Subscription">
+        <div style={{border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:16,marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:2}}>Newsletter</div>
+              <div style={{fontSize:10,color:T.text3}}>Automatic emails when new products or flash sales launch</div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <span style={{background:T.greenLight,color:T.green,borderRadius:T.r.full,
+                padding:"2px 9px",fontSize:9,fontWeight:600}}>Subscribed</span>
+              <button style={{fontSize:9,color:T.red,background:"transparent",
+                border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"3px 10px",cursor:"pointer"}}>Unsubscribe</button>
+            </div>
+          </div>
+          <div style={{fontSize:10,color:T.text3,background:T.bg2,borderRadius:T.r.md,padding:9,lineHeight:1.6}}>
+            Subscribed since 15 Jan 2025 · You can unsubscribe at any time from this page or from any newsletter email
+          </div>
+        </div>
+        <WfAnnot>Newsletter subscribe/unsubscribe are immediate server calls — not deferred to Save button · updateNotificationPreferences() updates NotificationPreference table · subscribeNewsletter/unsubscribeNewsletter updates users.is_subscribed</WfAnnot>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+          <WfBtn primary style={{fontSize:11}}>Save Preferences</WfBtn>
+        </div>
+      </WfSection>
+    </WfAccountLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SHARED ADMIN LAYOUT (used by admin wireframes)
+// ══════════════════════════════════════════════════════════════════════════════
+function WfAdminLayout({active,children,headerRight=null}){
+  const mainMenu=[
+    {ico:"📊",id:"admin_dash",label:"Dashboard"},
+    {ico:"📦",id:"admin_prods",label:"Products"},
+    {ico:"🗂",id:"admin_cats",label:"Categories"},
+    {ico:"⚡",id:"admin_flash",label:"Flash Sales"},
+    {ico:"🎟",id:"admin_coupons",label:"Coupons"},
+    {ico:"📋",id:"admin_orders",label:"Orders"},
+    {ico:"👥",id:"admin_customers",label:"Customers"},
+    {ico:"⭐",id:"admin_reviews",label:"Reviews"},
+    {ico:"✉",id:"admin_contact",label:"Messages",badge:"8"},
+    {ico:"💬",id:"admin_chat",label:"Live Chat",badge:"5"},
+  ];
+  const analytics=[
+    {ico:"📈",id:"admin_sales",label:"Sales Report"},
+    {ico:"🚦",id:"admin_traffic",label:"Traffic Analytics"},
+    {ico:"📦",id:"admin_inv",label:"Inventory"},
+  ];
+  const content=[
+    {ico:"🖼",id:"admin_banners",label:"Banners"},
+    {ico:"❓",id:"admin_faq",label:"FAQ"},
+    {ico:"📄",id:"admin_pages",label:"Page Editor"},
+    {ico:"⚙",id:"admin_settings",label:"Settings"},
+  ];
+  const NavGroup=({title,items})=>(
+    <>
+      <div style={{fontSize:9,letterSpacing:"0.1em",color:T.text3,textTransform:"uppercase",
+        margin:"12px 0 7px",fontWeight:600}}>{title}</div>
+      {items.map(({ico,id,label,badge})=>(
+        <div key={id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 10px",
+          borderRadius:T.r.md,marginBottom:3,cursor:"pointer",fontSize:10,
+          background:active===id?T.blueLight:"transparent",
+          color:active===id?T.blueText:T.text2}}>
+          <span>{ico}</span>
+          <span style={{flex:1}}>{label}</span>
+          {badge&&<span style={{background:T.redLight,color:T.red,borderRadius:T.r.full,
+            padding:"0 5px",fontSize:8,fontWeight:700}}>{badge}</span>}
+        </div>
+      ))}
+    </>
+  );
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      {/* Admin nav bar */}
+      <div style={{display:"flex",alignItems:"center",padding:"9px 18px",
+        borderBottom:`1px solid ${T.border1}`,background:T.bg2}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.text0}}>
+          WillOfGod <span style={{fontSize:9,color:T.text3,fontWeight:400}}>Admin</span>
+        </div>
+        <div style={{flex:1}}/>
+        {headerRight}
+        <div style={{display:"flex",gap:9,alignItems:"center",marginLeft:12}}>
+          {[{ic:"💬",n:"5"},{ic:"🔔",n:"3"}].map(({ic,n})=>(
+            <div key={ic} style={{position:"relative"}}>
+              <div style={{width:27,height:27,border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer"}}>{ic}</div>
+              <span style={{position:"absolute",top:-3,right:-3,width:13,height:13,
+                background:T.red,color:"#fff",borderRadius:"50%",fontSize:7,fontWeight:700,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>{n}</span>
+            </div>
+          ))}
+          <div style={{width:28,height:28,borderRadius:"50%",background:T.blueLight,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:10,fontWeight:700,color:T.blueText}}>AD</div>
+        </div>
+      </div>
+      <div style={{display:"flex",minHeight:500}}>
+        {/* Admin sidebar */}
+        <div style={{width:200,flexShrink:0,borderRight:`1px solid ${T.border1}`,
+          background:T.bg2,padding:12}}>
+          <NavGroup title="Main Menu" items={mainMenu}/>
+          <NavGroup title="Analytics" items={analytics}/>
+          <NavGroup title="Content" items={content}/>
+        </div>
+        {/* Main content */}
+        <div style={{flex:1,padding:16,overflow:"hidden",background:T.bg1}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ABOUT US PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAboutUs(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+
+      {/* HERO */}
+      <WfSection num="01" label="Page Hero (admin sets image + headline via Page Editor)">
+        <div style={{position:"relative",height:200}}>
+          <WfImg height={200} label="About Us Hero Image (admin-managed)" style={{borderRadius:0}}/>
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",padding:24,
+            background:"rgba(0,0,0,0.28)"}}>
+            <div style={{fontSize:10,letterSpacing:"0.1em",color:"rgba(255,255,255,0.7)",
+              textTransform:"uppercase",marginBottom:9}}>Our Story</div>
+            <div style={{fontSize:24,fontWeight:700,color:"#fff",textAlign:"center",
+              lineHeight:1.3,textShadow:"0 1px 6px rgba(0,0,0,0.4)"}}>
+              Designed for Your<br/>Everyday Confidence
+            </div>
+          </div>
+        </div>
+        <WfAnnot>Hero image + headline admin-set via Page Editor · Dark overlay ensures legibility on any image</WfAnnot>
+      </WfSection>
+
+      {/* CONTENT BLOCK */}
+      <div style={{maxWidth:700,margin:"0 auto",padding:"32px 24px"}}>
+        <WfSection num="02" label="HTML Content Block (admin WYSIWYG rich text)">
+          <div style={{textAlign:"center",marginBottom:22,padding:"14px 0"}}>
+            <div style={{fontSize:11,color:T.text3,letterSpacing:"0.08em",
+              textTransform:"uppercase",marginBottom:9}}>Who We Are</div>
+            <div style={{fontSize:18,fontWeight:700,color:T.text0,marginBottom:14,
+              lineHeight:1.4,maxWidth:520,margin:"0 auto 14px"}}>
+              A fashion-forward brand that brings quality and style together for the modern shopper.
+            </div>
+          </div>
+          <WfLine mb={5}/><WfLine w="95%" mb={5}/><WfLine w="92%" mb={5}/>
+          <WfLine w="88%" mb={5}/><WfLine w="94%" mb={18}/>
+          <WfLine mb={5}/><WfLine w="90%" mb={5}/><WfLine w="96%" mb={5}/>
+          <WfLine w="78%" mb={0}/>
+          <WfAnnot>All content managed via admin Page Editor · getSitePage('about_us') · Rich text stored as HTML · DOMPurify sanitises before render</WfAnnot>
+        </WfSection>
+
+        {/* STATS ROW */}
+        <WfSection num="03" label="Values / Stats Row (admin-set static values)">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,padding:"20px 0"}}>
+            {[["5+","Years in Business"],["50k+","Happy Customers"],["1000+","Products"]].map(([v,l])=>(
+              <div key={l} style={{padding:18,background:T.bg2,borderRadius:T.r.lg,textAlign:"center"}}>
+                <div style={{fontSize:26,fontWeight:700,color:T.text0,marginBottom:5}}>{v}</div>
+                <div style={{fontSize:10,color:T.text3}}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <WfAnnot>Static admin-set values — not computed from live DB · Edited via Page Editor</WfAnnot>
+        </WfSection>
+
+        {/* TEAM */}
+        <WfSection num="04" label="Team Section (admin HTML content)">
+          <div style={{padding:"20px 0"}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text0,textAlign:"center",marginBottom:18}}>Meet Our Team</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
+              {[1,2,3].map(i=>(
+                <div key={i} style={{textAlign:"center"}}>
+                  <WfImg height={72} style={{width:72,borderRadius:"50%",margin:"0 auto 10px"}}/>
+                  <WfLine w="70%" h={10} mb={4} />
+                  <WfLine w="55%" h={7} mb={0} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </WfSection>
+
+        {/* CTA */}
+        <WfSection num="05" label="CTA Block — drives buyers to the shop">
+          <div style={{background:T.bg2,borderRadius:T.r.lg,padding:26,textAlign:"center",margin:"8px 0"}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:6}}>
+              Ready to discover your style?
+            </div>
+            <div style={{fontSize:11,color:T.text2,marginBottom:16}}>
+              Browse our latest collection and find pieces you'll love.
+            </div>
+            <WfBtn primary style={{fontSize:12,padding:"9px 24px"}}>Shop Now</WfBtn>
+          </div>
+        </WfSection>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: CONTACT US PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeContactUs(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+
+      {/* HEADER */}
+      <WfSection num="01" label="Page Header">
+        <div style={{background:T.bg2,padding:"24px",textAlign:"center",borderBottom:`1px solid ${T.border1}`}}>
+          <div style={{fontSize:10,color:T.text3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7}}>Get in Touch</div>
+          <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:5}}>Contact Us</div>
+          <div style={{fontSize:11,color:T.text2}}>We're here to help. Send us a message and we'll respond within 24 hours.</div>
+        </div>
+      </WfSection>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr"}}>
+        {/* LEFT: Business info */}
+        <div style={{padding:22,borderRight:`1px solid ${T.border1}`,background:T.bg0}}>
+          <WfSection num="02" label="Business Info (from getSiteSettings())">
+            <div style={{paddingTop:14}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text0,marginBottom:16}}>Our Information</div>
+              {[["📍","Address","12 Commerce Street, Victoria Island, Lagos, Nigeria"],
+                ["📞","Phone","+234 801 234 5678"],
+                ["✉","Email","support@willofgod.com"],
+                ["⏰","Hours","Mon–Fri: 9am–6pm WAT\nSat: 10am–4pm WAT"]].map(([ico,label,val])=>(
+                <div key={label} style={{display:"flex",gap:12,marginBottom:18}}>
+                  <div style={{width:32,height:32,borderRadius:T.r.md,background:T.blueLight,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:15,flexShrink:0}}>{ico}</div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:3}}>{label}</div>
+                    <div style={{fontSize:10,color:T.text0,lineHeight:1.6}}>
+                      {val.split("\n").map((l,i)=><span key={i}>{l}{i<val.split("\n").length-1&&<br/>}</span>)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <WfAnnot>Business info pulled from getSiteSettings() — admin edits in Site Settings take effect immediately</WfAnnot>
+            </div>
+          </WfSection>
+
+          <WfSection num="03" label="Social Links (from Site Settings)">
+            <div style={{display:"flex",gap:9,padding:"12px 0"}}>
+              {["F","I","T","Y"].map((s,i)=>(
+                <div key={i} style={{width:32,height:32,border:`1px solid ${T.border0}`,
+                  borderRadius:T.r.md,display:"flex",alignItems:"center",
+                  justifyContent:"center",cursor:"pointer"}}>
+                  <span style={{fontSize:11,color:T.text3,fontWeight:600}}>{s}</span>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT: Contact form */}
+        <div style={{padding:22,background:T.bg0}}>
+          <WfSection num="04" label="Contact Form">
+            <div style={{paddingTop:14}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Your name</label>
+                  <input readOnly placeholder="John Adebayo" style={{width:"100%",border:`1px solid ${T.border0}`,
+                    borderRadius:T.r.md,padding:"8px 10px",fontSize:11,background:T.bg0,
+                    fontFamily:T.font,marginBottom:12}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Email address</label>
+                  <input readOnly placeholder="john@email.com" type="email" style={{width:"100%",border:`1px solid ${T.border0}`,
+                    borderRadius:T.r.md,padding:"8px 10px",fontSize:11,background:T.bg0,
+                    fontFamily:T.font,marginBottom:12}}/>
+                </div>
+              </div>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Subject</label>
+              <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,marginBottom:12,color:T.text2}}>
+                <option>Select a subject…</option>
+                <option>Order Issue</option>
+                <option>Product Question</option>
+                <option>Return Request</option>
+                <option>Other</option>
+              </select>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Message</label>
+              <textarea readOnly placeholder="Tell us how we can help…"
+                style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:11,background:T.bg0,height:100,resize:"none",
+                fontFamily:T.font,marginBottom:12,color:T.text2}}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontSize:9,color:T.text3}}>We typically respond within 24 hours</div>
+                <WfBtn primary style={{fontSize:12}}>Send Message</WfBtn>
+              </div>
+            </div>
+          </WfSection>
+
+          <WfSection num="05" label="Success State (replaces form after submission)">
+            <div style={{background:T.greenLight,border:`1px solid #86EFAC`,borderRadius:T.r.lg,
+              padding:16,display:"flex",gap:12,alignItems:"center",margin:"8px 0"}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:T.greenLight,
+                border:`1px solid #86EFAC`,display:"flex",alignItems:"center",
+                justifyContent:"center",flexShrink:0}}>
+                <span style={{color:T.green,fontSize:14,fontWeight:700}}>✓</span>
+              </div>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:T.green,marginBottom:3}}>Message sent!</div>
+                <div style={{fontSize:10,color:T.green,opacity:0.88,lineHeight:1.5}}>
+                  We've received your message and will reply to john@email.com within 24 hours.
+                </div>
+              </div>
+            </div>
+            <WfAnnot>submitContactMessage() · Saves to ContactMessage DB record · Notifies admin via email + dashboard badge · Auto-acknowledgement email sent to sender</WfAnnot>
+          </WfSection>
+        </div>
+      </div>
+
+      {/* LIVE CHAT CALLOUT */}
+      <WfSection num="06" label="Live Chat Widget Reference (floating FAB — available on every page)">
+        <div style={{padding:"14px 22px",background:T.bg2,display:"flex",alignItems:"center",gap:16}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:T.blueLight,
+            border:`1px solid ${T.blueBorder}`,display:"flex",
+            alignItems:"center",justifyContent:"center",fontSize:20}}>💬</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:600,color:T.text0,marginBottom:3}}>Live Chat — Available on Every Page</div>
+            <div style={{fontSize:10,color:T.text2}}>Floating button bottom-right corner · Opens chat panel overlay · Real-time SSE messaging with admin</div>
+          </div>
+          <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.lg,padding:12,minWidth:210,background:T.bg0}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:8,display:"flex",justifyContent:"space-between"}}>
+              <span>Support Chat</span>
+              <span style={{fontSize:9,color:T.green,fontWeight:600}}>● Online</span>
+            </div>
+            <div style={{background:T.bg2,borderRadius:T.r.md,padding:7,marginBottom:8,
+              fontSize:9,color:T.text2}}>Hi! How can we help you today?</div>
+            <div style={{display:"flex",gap:6}}>
+              <input readOnly placeholder="Type a message…" style={{flex:1,border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,padding:"5px 8px",fontSize:9,background:T.bg0,fontFamily:T.font}}/>
+              <WfBtn primary style={{fontSize:9,padding:"5px 9px",whiteSpace:"nowrap"}}>Send</WfBtn>
+            </div>
+          </div>
+        </div>
+      </WfSection>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: FAQ PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeFaqPage(){
+  const groups=[
+    {cat:"Shipping",qs:["How long does delivery take?","Do you offer free shipping?","Can I track my order?","Do you ship internationally?","What are your pickup locations?"]},
+    {cat:"Payments",qs:["What payment methods do you accept?","Is it safe to pay on this website?","Can I pay on delivery?","Do you offer instalment payment?"]},
+    {cat:"Returns",qs:["How do I return an item?","How long do refunds take?","What items cannot be returned?"]},
+  ];
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+
+      {/* HEADER + SEARCH */}
+      <WfSection num="01" label="Page Header + FAQ Search Bar">
+        <div style={{background:T.bg2,padding:"26px 24px",textAlign:"center",borderBottom:`1px solid ${T.border1}`}}>
+          <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:7}}>Frequently Asked Questions</div>
+          <div style={{fontSize:11,color:T.text2,marginBottom:16}}>Find answers to our most common questions</div>
+          <div style={{maxWidth:400,margin:"0 auto",position:"relative"}}>
+            <input readOnly placeholder="Search FAQs…" style={{width:"100%",border:`1px solid ${T.border0}`,
+              borderRadius:T.r.md,padding:"9px 12px 9px 34px",fontSize:11,
+              background:T.bg0,fontFamily:T.font}}/>
+            <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",
+              fontSize:14,color:T.text3}}>⌕</span>
+          </div>
+        </div>
+        <WfAnnot>Search filters FAQ items client-side (no API call on keypress) · Debounced 200ms · Matched terms highlighted in question text</WfAnnot>
+      </WfSection>
+
+      <div style={{display:"grid",gridTemplateColumns:"200px 1fr"}}>
+        {/* SIDEBAR */}
+        <div style={{borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg0}}>
+          <WfSection num="02" label="Category Filter Sidebar">
+            <div style={{paddingTop:10}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:10}}>Categories</div>
+              {[["All FAQs","18",true],["Shipping","5",false],["Payments","4",false],["Returns","3",false],["Orders","4",false],["Account","2",false]].map(([t,c,active])=>(
+                <div key={t} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"8px 10px",borderRadius:T.r.md,marginBottom:3,cursor:"pointer",
+                  background:active?T.blueLight:"transparent"}}>
+                  <span style={{fontSize:10,color:active?T.blueText:T.text2}}>{t}</span>
+                  <span style={{fontSize:9,background:active?T.bg0:T.bg2,
+                    color:active?T.blueText:T.text3,borderRadius:T.r.full,padding:"0 6px"}}>{c}</span>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+        </div>
+
+        {/* ACCORDIONS */}
+        <div style={{padding:16,background:T.bg1}}>
+          <WfSection num="03" label="FAQ Accordion Groups (category headings + expandable items)">
+            <div style={{paddingTop:12}}>
+              {groups.map(({cat,qs},gi)=>(
+                <div key={cat} style={{marginBottom:18}}>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text0,marginBottom:11,
+                    paddingBottom:7,borderBottom:`1px solid ${T.border0}`}}>{cat}</div>
+                  {qs.map((q,qi)=>(
+                    <div key={qi} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.md,marginBottom:5,overflow:"hidden"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                        padding:"10px 13px",cursor:"pointer",
+                        background:gi===0&&qi===0?T.bg2:T.bg0}}>
+                        <span style={{fontSize:11,color:T.text0}}>{q}</span>
+                        <span style={{fontSize:15,color:T.text3,flexShrink:0,marginLeft:9}}>
+                          {gi===0&&qi===0?"−":"+"}
+                        </span>
+                      </div>
+                      {gi===0&&qi===0&&(
+                        <div style={{padding:"11px 13px",borderTop:`1px solid ${T.border1}`}}>
+                          <WfLine w="90%" mb={4}/><WfLine w="80%" mb={4}/><WfLine w="65%" mb={0}/>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <WfAnnot>Admin reorders FAQ items via drag · reorderFaqs() · getFaqs() returns grouped by category · 'Still have questions?' CTA always visible below</WfAnnot>
+              <div style={{background:T.bg2,borderRadius:T.r.lg,padding:18,textAlign:"center",marginTop:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:T.text0,marginBottom:5}}>Still have questions?</div>
+                <div style={{fontSize:10,color:T.text2,marginBottom:12}}>Our support team is ready to help you</div>
+                <WfBtn primary style={{fontSize:11}}>Contact Us</WfBtn>
+              </div>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: POLICY PAGES
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframePolicies(){
+  return(
+    <div style={{fontFamily:T.font,background:T.bg1,color:T.text0}}>
+      <WfNav/>
+      <div style={{display:"grid",gridTemplateColumns:"200px 1fr"}}>
+        {/* SIDEBAR NAV */}
+        <div style={{borderRight:`1px solid ${T.border1}`,padding:16,background:T.bg2}}>
+          <WfSection num="01" label="Policy Sidebar Navigation">
+            <div style={{paddingTop:10}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:10}}>Legal & Policies</div>
+              {[["Shipping Policy",true],["Privacy Policy",false],["Terms & Conditions",false],["Return Policy",false],["Cookie Policy",false]].map(([t,active])=>(
+                <div key={t} style={{padding:"8px 10px",borderRadius:T.r.md,marginBottom:5,cursor:"pointer",
+                  background:active?T.bg0:"transparent",
+                  borderLeft:`2px solid ${active?T.blueText:"transparent"}`}}>
+                  <span style={{fontSize:10,color:active?T.text0:T.text2,fontWeight:active?500:400}}>{t}</span>
+                </div>
+              ))}
+              <div style={{height:1,background:T.border1,margin:"14px 0"}}/>
+              <div style={{fontSize:10,color:T.text3,lineHeight:1.7}}>
+                Need more help?{" "}
+                <span style={{color:T.blueText,cursor:"pointer"}}>Contact us</span>{" "}or visit our{" "}
+                <span style={{color:T.blueText,cursor:"pointer"}}>FAQ page</span>.
+              </div>
+            </div>
+          </WfSection>
+        </div>
+
+        {/* POLICY CONTENT */}
+        <div style={{padding:22,background:T.bg0}}>
+          <WfSection num="02" label="Policy Content (admin WYSIWYG — Shipping Policy shown as example)">
+            <div style={{paddingTop:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
+                <div>
+                  <div style={{fontSize:19,fontWeight:700,color:T.text0,marginBottom:4}}>Shipping Policy</div>
+                  <div style={{fontSize:10,color:T.text3}}>Last updated: 15 March 2026</div>
+                </div>
+                <div style={{fontSize:9,color:T.text3,background:T.bg2,border:`1px solid ${T.border1}`,
+                  borderRadius:T.r.sm,padding:"3px 9px"}}>Admin-managed HTML</div>
+              </div>
+
+              <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:11}}>Delivery Options</div>
+              <WfLine mb={5}/><WfLine w="95%" mb={5}/><WfLine w="88%" mb={5}/><WfLine w="92%" mb={18}/>
+
+              <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:11}}>Delivery Timeframes</div>
+              <div style={{background:T.bg2,borderRadius:T.r.md,padding:13,marginBottom:16}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${T.border0}`}}>
+                      {["Location","Standard","Express"].map(h=>(
+                        <th key={h} style={{textAlign:"left",padding:"5px 9px",fontSize:10,
+                          fontWeight:600,color:T.text1}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[["Lagos","1–2 days","Same day"],["Other Nigerian Cities","3–5 days","2–3 days"],["International","7–14 days","5–7 days"]].map(([loc,std,exp])=>(
+                      <tr key={loc} style={{borderBottom:`1px solid ${T.border2}`}}>
+                        {[loc,std,exp].map((v,i)=>(
+                          <td key={i} style={{padding:"7px 9px",fontSize:10,
+                            color:i===0?T.text0:T.text2}}>{v}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:11}}>Shipping Fees</div>
+              <WfLine mb={5}/><WfLine w="85%" mb={5}/><WfLine w="70%" mb={18}/>
+
+              <div style={{fontSize:14,fontWeight:700,color:T.text0,marginBottom:11}}>Pickup Locations</div>
+              <WfLine mb={5}/><WfLine w="80%" mb={22}/>
+
+              <div style={{height:1,background:T.border2,marginBottom:16}}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:10,color:T.text3}}>Was this page helpful?</div>
+                <div style={{display:"flex",gap:7}}>
+                  <WfBtn primary style={{fontSize:9,padding:"4px 11px"}}>👍 Yes</WfBtn>
+                  <WfBtn style={{fontSize:9,padding:"4px 11px"}}>👎 No</WfBtn>
+                </div>
+              </div>
+              <WfAnnot>getSitePage('shipping_policy') · Admin edits via WYSIWYG Page Editor · last_updated shows timestamp · All policy HTML sanitised before render</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminDashboard(){
+  return(
+    <WfAdminLayout active="admin_dash">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:T.text0}}>Dashboard</div>
+          <div style={{fontSize:10,color:T.text3}}>Monday, 17 March 2026</div>
+        </div>
+        <div style={{display:"flex",gap:7}}>
+          <WfBtn primary style={{fontSize:9,padding:"5px 12px"}}>+ Add Product</WfBtn>
+          <WfBtn style={{fontSize:9,padding:"5px 12px"}}>⚡ Flash Sale</WfBtn>
+        </div>
+      </div>
+
+      {/* KPI CARDS */}
+      <WfSection num="01" label="KPI Cards (today's stats — live via SSE)">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 0"}}>
+          {[
+            {v:"₦284,500",l:"Today's Revenue",sub:"+12% vs yesterday",c:T.green},
+            {v:"18",l:"New Orders",sub:"3 pending payment",c:T.blueText},
+            {v:"7",l:"New Signups",sub:"via web + Google",c:T.blueText},
+            {v:"4",l:"Low Stock Items",sub:"needs restocking",c:T.red},
+          ].map(({v,l,sub,c})=>(
+            <div key={l} style={{background:T.bg0,border:`1px solid ${T.border1}`,
+              borderRadius:T.r.lg,padding:14}}>
+              <div style={{fontSize:9,color:T.text3,marginBottom:6}}>{l}</div>
+              <div style={{fontSize:22,fontWeight:700,color:T.text0,marginBottom:5}}>{v}</div>
+              <div style={{fontSize:9,color:c,fontWeight:500}}>{sub}</div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>getDashboardStats() · Values update via SSE on new order · KPI count-up animation on initial load</WfAnnot>
+      </WfSection>
+
+      {/* REVENUE CHART */}
+      <WfSection num="02" label="Revenue Chart — 7-Day Bar Chart">
+        <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,
+          padding:14,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Revenue — Last 7 Days</div>
+            <div style={{display:"flex",gap:5}}>
+              {["7D","30D","90D"].map((t,i)=>(
+                <button key={t} style={{padding:"3px 9px",border:`1px solid ${i===0?T.blueBorder:T.border0}`,
+                  background:i===0?T.blueLight:"transparent",borderRadius:T.r.sm,
+                  fontSize:9,color:i===0?T.blueText:T.text3,cursor:"pointer"}}>{t}</button>
+              ))}
+            </div>
+          </div>
+          {/* Bar chart */}
+          <div style={{height:90,display:"flex",alignItems:"flex-end",gap:7,
+            borderBottom:`1px solid ${T.border1}`,paddingBottom:5}}>
+            {[40,65,52,78,88,55,95].map((h,i)=>(
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",background:i===6?T.blueLight:T.bg3,
+                  border:`1px solid ${i===6?T.blueBorder:T.border1}`,
+                  borderRadius:"3px 3px 0 0",height:`${h}%`}}/>
+                <div style={{fontSize:8,color:T.text3}}>
+                  {["M","T","W","T","F","S","S"][i]}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:8}}>
+            <div style={{fontSize:9,color:T.text3}}>Total: ₦1,842,000</div>
+            <div style={{fontSize:9,color:T.green,fontWeight:600}}>↑ 18% vs last week</div>
+          </div>
+        </div>
+      </WfSection>
+
+      {/* RECENT ORDERS + LOW STOCK */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:13,marginBottom:14}}>
+        {/* Recent orders */}
+        <div>
+          <WfSection num="03" label="Recent Orders">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Recent Orders</div>
+                <span style={{fontSize:9,color:T.blueText,cursor:"pointer"}}>View all →</span>
+              </div>
+              {[["ORD-20260317","John A.","₦36k","Confirmed","#E1F5EE","#085041"],
+                ["ORD-20260317","Amaka O.","₦18k","Pending","#FAEEDA","#633806"],
+                ["ORD-20260316","Tunde B.","₦52k","Shipped","#E6F1FB","#0C447C"],
+                ["ORD-20260316","Ngozi E.","₦12k","Delivered","#EAF3DE","#27500A"]].map(([ref,name,amt,status,bg,col])=>(
+                <div key={ref} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",
+                  borderBottom:`1px solid ${T.border2}`}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:9,fontWeight:600,color:T.text0,fontFamily:T.mono}}>{ref}</div>
+                    <div style={{fontSize:8,color:T.text3}}>{name}</div>
+                  </div>
+                  <div style={{fontSize:9,fontWeight:600,color:T.text0}}>{amt}</div>
+                  <div style={{background:bg,color:col,borderRadius:T.r.sm,
+                    padding:"2px 6px",fontSize:9,fontWeight:600}}>{status}</div>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+        </div>
+
+        {/* Low stock */}
+        <div>
+          <WfSection num="04" label="Low Stock Alerts">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:12,fontWeight:600,color:T.text0}}>Low Stock</div>
+                <span style={{fontSize:9,color:T.blueText,cursor:"pointer"}}>View inventory →</span>
+              </div>
+              {[["Classic Blazer — Blue/M","SKU: BLZ-001","2 left",false],
+                ["Oxford Shoes — Black/42","SKU: OXF-042","0 left",true],
+                ["Slim Chinos — Khaki/32","SKU: CHN-032","4 left",false]].map(([name,sku,stock,oos])=>(
+                <div key={name} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",
+                  borderBottom:`1px solid ${T.border2}`}}>
+                  <WfImg height={28} style={{width:28,flexShrink:0,borderRadius:T.r.sm}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:9,fontWeight:600,color:T.text0}}>{name}</div>
+                    <div style={{fontSize:8,color:T.text3}}>{sku}</div>
+                  </div>
+                  <div style={{background:oos?T.redLight:"#FAEEDA",
+                    color:oos?T.red:"#633806",borderRadius:T.r.sm,
+                    padding:"2px 6px",fontSize:9,fontWeight:600}}>{stock}</div>
+                </div>
+              ))}
+              <WfAnnot>sendLowStockAlertsJob runs every 6h · Admin also notified via SSE</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+
+      {/* TRAFFIC SUMMARY */}
+      <WfSection num="05" label="Traffic Summary (from TrafficAnalytics)">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:9,padding:"14px 0"}}>
+          {[["1,847","Total Visits"],["342","Unique Visitors"],["7","New Signups"],["24%","Cart Abandon Rate"],["8.2%","Conversion Rate"]].map(([v,l])=>(
+            <div key={l} style={{background:T.bg2,borderRadius:T.r.md,padding:11,textAlign:"center"}}>
+              <div style={{fontSize:18,fontWeight:700,color:T.text0}}>{v}</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:3}}>{l}</div>
+            </div>
+          ))}
+        </div>
+        <WfAnnot>Live SSE broadcasts new order notifications to this dashboard · getDashboardStats() + streamNotifications()</WfAnnot>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN PRODUCT MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminProducts(){
+  const products=[
+    {name:"Classic Tailored Blazer",cat:"Women / Clothing",vars:4,range:"₦18k–₦22k",stock:"12",active:true,low:false,oos:false},
+    {name:"Slim Fit Chinos",cat:"Men / Trousers",vars:6,range:"₦12k–₦15k",stock:"3",active:true,low:true,oos:false},
+    {name:"Leather Oxford Shoes",cat:"Footwear",vars:3,range:"₦22k–₦28k",stock:"0",active:true,low:true,oos:true},
+    {name:"Cotton Casual Shirt",cat:"Men / Tops",vars:8,range:"₦8k–₦10k",stock:"47",active:false,low:false,oos:false},
+    {name:"Summer Floral Dress",cat:"Women / Dresses",vars:5,range:"₦16k–₦20k",stock:"21",active:true,low:false,oos:false},
+  ];
+  return(
+    <WfAdminLayout active="admin_prods"
+      headerRight={<WfBtn primary style={{fontSize:10}}>+ Add New Product</WfBtn>}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:14}}>Product Management</div>
+
+      {/* SEARCH + FILTER */}
+      <WfSection num="01" label="Search + Filter Bar">
+        <div style={{display:"flex",gap:9,padding:"12px 0",flexWrap:"wrap"}}>
+          <input readOnly placeholder="Search by name or SKU…" style={{flex:2,minWidth:160,
+            border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"7px 10px",
+            fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+          {["All Categories","All Status","All Stock"].map(p=>(
+            <select key={p} style={{flex:1,minWidth:110,border:`1px solid ${T.border0}`,
+              borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,
+              fontFamily:T.font,color:T.text2}}>
+              <option>{p}</option>
+            </select>
+          ))}
+          <WfBtn primary style={{fontSize:10,padding:"7px 15px",whiteSpace:"nowrap"}}>Filter</WfBtn>
+        </div>
+      </WfSection>
+
+      {/* BULK ACTIONS */}
+      <WfSection num="02" label="Bulk Actions + Product Count">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <input type="checkbox" readOnly style={{width:13,height:13}}/>
+            <span style={{fontSize:10,color:T.text2}}>Select all · <strong style={{color:T.text0}}>248 products</strong></span>
+            <select style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+              padding:"4px 9px",fontSize:10,background:T.bg0,fontFamily:T.font,color:T.text2}}>
+              <option>Bulk Action…</option>
+              <option>Activate</option>
+              <option>Deactivate</option>
+              <option>Delete</option>
+            </select>
+            <WfBtn style={{fontSize:9,padding:"5px 11px"}}>Apply</WfBtn>
+          </div>
+          <div style={{display:"flex",gap:7}}>
+            <WfBtn style={{fontSize:9,padding:"5px 11px"}}>Export CSV</WfBtn>
+            <WfBtn primary style={{fontSize:9,padding:"5px 11px"}}>+ Add Product</WfBtn>
+          </div>
+        </div>
+      </WfSection>
+
+      {/* PRODUCTS TABLE */}
+      <WfSection num="03" label="Products Table (sortable · alternating rows · inline status toggle)">
+        <div style={{overflowX:"auto",paddingTop:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:680}}>
+            <thead>
+              <tr style={{background:T.bg2,borderBottom:`1px solid ${T.border0}`}}>
+                <th style={{padding:"8px 10px",width:30}}><input type="checkbox" readOnly/></th>
+                {["Product","Category","Variants","Price Range","Stock","Status","Actions"].map(h=>(
+                  <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:9,
+                    fontWeight:600,color:T.text3,letterSpacing:"0.06em",textTransform:"uppercase"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((p,ri)=>(
+                <tr key={p.name} style={{borderBottom:`1px solid ${T.border2}`,
+                  background:ri%2===0?T.bg0:T.bg2}}>
+                  <td style={{padding:"8px 10px"}}><input type="checkbox" readOnly/></td>
+                  <td style={{padding:"8px 10px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                      <WfImg height={36} style={{width:36,flexShrink:0,borderRadius:T.r.sm}}/>
+                      <span style={{fontSize:10,fontWeight:600,color:T.text0}}>{p.name}</span>
+                    </div>
+                  </td>
+                  <td style={{padding:"8px 10px",fontSize:10,color:T.text2}}>{p.cat}</td>
+                  <td style={{padding:"8px 10px",fontSize:10,color:T.text2}}>{p.vars} variants</td>
+                  <td style={{padding:"8px 10px",fontSize:10,color:T.text0,fontWeight:500}}>{p.range}</td>
+                  <td style={{padding:"8px 10px"}}>
+                    <div style={{
+                      background:p.oos?T.redLight:p.low?"#FAEEDA":T.greenLight,
+                      color:p.oos?T.red:p.low?"#633806":T.green,
+                      borderRadius:T.r.sm,padding:"2px 7px",fontSize:9,fontWeight:600,
+                      display:"inline-block"
+                    }}>
+                      {p.oos?"Out of stock":p.low?`Low: ${p.stock}`:`${p.stock} in stock`}
+                    </div>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    {/* Toggle switch */}
+                    <div style={{width:34,height:18,borderRadius:99,position:"relative",cursor:"pointer",
+                      background:p.active?T.blue:T.bg3,border:`1px solid ${p.active?T.blueBorder:T.border0}`}}>
+                      <div style={{position:"absolute",top:2,width:14,height:14,
+                        background:"#fff",borderRadius:"50%",[p.active?"right":"left"]:2}}/>
+                    </div>
+                  </td>
+                  <td style={{padding:"8px 10px"}}>
+                    <div style={{display:"flex",gap:5}}>
+                      <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                        border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Edit</button>
+                      <button style={{fontSize:9,color:T.text2,background:"transparent",
+                        border:`1px solid ${T.border0}`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Variants</button>
+                      <button style={{fontSize:9,color:T.red,background:"transparent",
+                        border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"3px 8px",cursor:"pointer"}}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <WfAnnot>Status toggle = instant active/inactive via PATCH (optimistic UI) · Variants → Variant & Image Manager · Delete = soft delete (is_active=false) with confirmation dialog</WfAnnot>
+      </WfSection>
+
+      {/* PAGINATION */}
+      <WfSection num="04" label="Pagination">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0"}}>
+          <div style={{fontSize:10,color:T.text3}}>Showing 1–5 of 248 products</div>
+          <div style={{display:"flex",gap:5}}>
+            {[1,2,3,"…",50].map((p,i)=>(
+              <button key={i} style={{width:25,height:25,border:`1px solid ${i===0?T.blueBorder:T.border1}`,
+                background:i===0?T.blueLight:"transparent",borderRadius:T.r.sm,
+                fontSize:9,color:i===0?T.blueText:T.text3,cursor:"pointer"}}>{p}</button>
+            ))}
+          </div>
+        </div>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN ORDER MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminOrders(){
+  const orders=[
+    {ref:"ORD-20260317-A3F8",cust:"John Adebayo",   date:"17 Mar, 10:32",items:2,total:"₦36,000",type:"Delivery",status:"Confirmed",bg:"#E1F5EE",col:"#085041"},
+    {ref:"ORD-20260317-B9K2",cust:"Amaka Okonkwo",  date:"17 Mar, 09:14",items:1,total:"₦22,000",type:"Delivery",status:"Pending",  bg:"#FAEEDA",col:"#633806"},
+    {ref:"ORD-20260316-C4X8",cust:"Tunde Bashir",   date:"16 Mar, 16:50",items:4,total:"₦58,500",type:"Pickup",  status:"Packed",   bg:"#EEEDFE",col:"#3C3489"},
+    {ref:"ORD-20260316-D7T1",cust:"Ngozi Eze",      date:"16 Mar, 12:30",items:1,total:"₦12,000",type:"Delivery",status:"Shipped",  bg:"#E6F1FB",col:"#0C447C"},
+    {ref:"ORD-20260315-E2M9",cust:"Kemi Adeyemi",   date:"15 Mar, 08:45",items:3,total:"₦44,500",type:"Delivery",status:"Delivered",bg:"#EAF3DE",col:"#27500A"},
+    {ref:"ORD-20260314-F5P3",cust:"Emeka Nwosu",    date:"14 Mar, 14:22",items:2,total:"₦18,000",type:"Pickup",  status:"Cancelled",bg:"#FCEBEB",col:"#791F1F"},
+  ];
+  return(
+    <WfAdminLayout active="admin_orders"
+      headerRight={<WfBtn style={{fontSize:9,padding:"5px 12px"}}>Export CSV</WfBtn>}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:14}}>Order Management</div>
+
+      {/* FILTER BAR */}
+      <WfSection num="01" label="Filter + Search Bar">
+        <div style={{display:"flex",gap:8,padding:"12px 0",flexWrap:"wrap"}}>
+          <input readOnly placeholder="Order ref or customer email…" style={{flex:2,minWidth:150,
+            border:`1px solid ${T.border0}`,borderRadius:T.r.md,padding:"7px 10px",
+            fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+          {["All Statuses","Fulfillment"].map(p=>(
+            <select key={p} style={{flex:1,minWidth:110,border:`1px solid ${T.border0}`,
+              borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,
+              fontFamily:T.font,color:T.text2}}>
+              <option>{p}</option>
+            </select>
+          ))}
+          <input type="date" style={{flex:1,minWidth:110,border:`1px solid ${T.border0}`,
+            borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font}}/>
+          <input type="date" style={{flex:1,minWidth:110,border:`1px solid ${T.border0}`,
+            borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font}}/>
+          <WfBtn primary style={{fontSize:10,whiteSpace:"nowrap",padding:"7px 14px"}}>Apply Filters</WfBtn>
+        </div>
+      </WfSection>
+
+      {/* STATUS TABS */}
+      <WfSection num="02" label="Status Summary Tabs">
+        <div style={{display:"flex",gap:5,padding:"10px 0",flexWrap:"wrap"}}>
+          {[["All","248",true],["Pending","12"],["Confirmed","34"],["Packed","18"],["Shipped","28"],["Delivered","142"],["Cancelled","14"]].map(([t,c,active])=>(
+            <button key={t} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",
+              border:`1px solid ${active?T.blueBorder:T.border0}`,
+              background:active?T.blueLight:"transparent",borderRadius:T.r.md,cursor:"pointer"}}>
+              <span style={{fontSize:9,color:active?T.blueText:T.text2}}>{t}</span>
+              <span style={{fontSize:8,background:active?T.bg0:T.bg3,
+                color:active?T.blueText:T.text3,borderRadius:T.r.full,padding:"0 5px"}}>{c}</span>
+            </button>
+          ))}
+        </div>
+      </WfSection>
+
+      {/* ORDERS TABLE */}
+      <WfSection num="03" label="Orders Table (inline status update dropdown · Order Ref clickable)">
+        <div style={{overflowX:"auto",paddingTop:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:T.bg2,borderBottom:`1px solid ${T.border0}`}}>
+                {["Order Ref","Customer","Date","Items","Total","Fulfillment","Status","Action"].map(h=>(
+                  <th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:9,
+                    fontWeight:600,color:T.text3,letterSpacing:"0.06em",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o,ri)=>(
+                <tr key={o.ref} style={{borderBottom:`1px solid ${T.border2}`,background:ri%2===0?T.bg0:T.bg2}}>
+                  <td style={{padding:"7px 10px",fontSize:9,fontFamily:T.mono,color:T.blueText,cursor:"pointer"}}>{o.ref}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text0}}>{o.cust}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text3,whiteSpace:"nowrap"}}>{o.date}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text2,textAlign:"center"}}>{o.items}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,fontWeight:600,color:T.text0}}>{o.total}</td>
+                  <td style={{padding:"7px 10px"}}>
+                    <span style={{background:T.bg2,border:`1px solid ${T.border0}`,borderRadius:T.r.full,
+                      padding:"2px 8px",fontSize:8,color:T.text1}}>
+                      {o.type==="Pickup"?"🏪":"🚚"} {o.type}
+                    </span>
+                  </td>
+                  <td style={{padding:"7px 10px"}}>
+                    <div style={{background:o.bg,color:o.col,borderRadius:T.r.sm,
+                      padding:"2px 6px",fontSize:9,fontWeight:600,display:"inline-block"}}>{o.status}</div>
+                  </td>
+                  <td style={{padding:"7px 10px"}}>
+                    <div style={{display:"flex",gap:5}}>
+                      <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                        border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"2px 8px",cursor:"pointer"}}>View</button>
+                      <select style={{fontSize:8,padding:"2px 6px",border:`1px solid ${T.border0}`,
+                        borderRadius:T.r.sm,color:T.text3,background:T.bg0,fontFamily:T.font,cursor:"pointer"}}>
+                        <option>Update…</option>
+                        <option>Confirm</option><option>Pack</option><option>Ship</option><option>Cancel</option>
+                      </select>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          padding:"10px 0",borderTop:`1px solid ${T.border2}`}}>
+          <div style={{fontSize:9,color:T.text3}}>Showing 1–6 of 248 orders</div>
+          <div style={{display:"flex",gap:4}}>
+            {[1,2,3,"…",42].map((p,i)=>(
+              <button key={i} style={{width:22,height:22,border:`1px solid ${i===0?T.blueBorder:T.border1}`,
+                background:i===0?T.blueLight:"transparent",borderRadius:T.r.sm,
+                fontSize:9,color:i===0?T.blueText:T.text3,cursor:"pointer"}}>{p}</button>
+            ))}
+          </div>
+        </div>
+        <WfAnnot>Inline status dropdown updates immediately via PATCH · State machine validates transitions server-side · Order Ref links to Admin Order Detail · Export CSV uses exportReport() with current filters</WfAnnot>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN ORDER DETAIL
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminOrderDetail(){
+  const steps=[
+    {s:"Order Placed",    d:"17 Mar 10:32",           done:true, active:false},
+    {s:"Payment Confirmed",d:"17 Mar 10:33",          done:true, active:false},
+    {s:"Order Packed",   d:"17 Mar 14:20 · Note: Packed for morning dispatch",done:true,active:false},
+    {s:"Out for Delivery",d:"Est. 18 Mar 2026",       done:false,active:true},
+    {s:"Delivered",      d:"—",                       done:false,active:false},
+  ];
+  return(
+    <WfAdminLayout active="admin_orders"
+      headerRight={<span style={{fontSize:9,color:T.blueText,cursor:"pointer"}}>← Back to Orders</span>}>
+      {/* PAGE HEADER */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:9,color:T.text3,marginBottom:3}}>Orders › ORD-20260317-A3F8K2QZ</div>
+          <div style={{fontSize:15,fontWeight:700,color:T.text0,fontFamily:T.mono}}>ORD-20260317-A3F8K2QZ</div>
+          <div style={{fontSize:9,color:T.text3,marginTop:2}}>17 Mar 2026 · 10:32 AM · Delivery · Stripe · ₦36,000</div>
+        </div>
+        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+          <div style={{background:"#E1F5EE",color:"#085041",borderRadius:T.r.sm,
+            padding:"3px 11px",fontSize:10,fontWeight:600}}>Confirmed</div>
+          <WfBtn primary style={{fontSize:9}}>Download Invoice</WfBtn>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:13}}>
+        {/* LEFT */}
+        <div>
+          {/* UPDATE STATUS */}
+          <WfSection num="01" label="Update Order Status">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:11}}>Update Status</div>
+              <div style={{display:"flex",gap:9,marginBottom:11,alignItems:"flex-end"}}>
+                <div style={{flex:1}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>New Status</label>
+                  <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                    padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font,color:T.text1}}>
+                    <option>Packed</option><option>Out for Delivery</option>
+                    <option>Ready for Pickup</option><option>Delivered</option><option>Cancelled</option>
+                  </select>
+                </div>
+                <div style={{flex:2}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                    Admin Note <span style={{fontWeight:400,color:T.text3}}>(optional)</span>
+                  </label>
+                  <input readOnly placeholder="e.g. Packed and ready for dispatch"
+                    style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                    padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+                </div>
+                <WfBtn primary style={{fontSize:10,whiteSpace:"nowrap"}}>Update Status</WfBtn>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                {[["Estimated Delivery Date","date"],["External Tracking URL","text"]].map(([lbl,type])=>(
+                  <div key={lbl}>
+                    <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>
+                      {lbl} <span style={{fontWeight:400,color:T.text3}}>(optional)</span>
+                    </label>
+                    <input readOnly type={type}
+                      placeholder={type==="text"?"https://courier.com/track/…":undefined}
+                      style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                      padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font}}/>
+                  </div>
+                ))}
+              </div>
+              <WfAnnot>State machine validates transitions · Est. delivery date shown to buyer on their order page · Tracking URL becomes clickable '🔗 Track Package' link for buyer</WfAnnot>
+            </div>
+          </WfSection>
+
+          {/* TIMELINE */}
+          <WfSection num="02" label="Status History Timeline (with admin notes on completed steps)">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              {steps.map((step,i)=>(
+                <div key={i} style={{display:"flex",gap:11,marginBottom:0}}>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:22}}>
+                    <div style={{width:18,height:18,borderRadius:"50%",flexShrink:0,
+                      background:step.done?T.greenLight:step.active?T.blueLight:T.bg3,
+                      border:`1px solid ${step.done?"#86EFAC":step.active?T.blueBorder:T.border0}`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,
+                      color:step.done?T.green:step.active?T.blueText:T.text3}}>
+                      {step.done?"✓":step.active?"●":"○"}
+                    </div>
+                    {i<steps.length-1&&<div style={{width:2,height:24,background:step.done?"#86EFAC":T.border2,margin:"2px 0"}}/>}
+                  </div>
+                  <div style={{flex:1,paddingBottom:i<steps.length-1?5:0}}>
+                    <div style={{fontSize:10,fontWeight:step.active?600:400,
+                      color:step.done?T.text0:step.active?T.blueText:T.text3}}>{step.s}</div>
+                    <div style={{fontSize:9,color:T.text3,marginTop:1,fontStyle:step.done&&step.d.includes("Note")?"italic":"normal"}}>{step.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          {/* ORDER ITEMS */}
+          <WfSection num="03" label="Order Items">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+              {[{name:"Classic Tailored Blazer",v:"Blue / M",qty:1,price:"₦18,500"},
+                {name:"Slim Fit Chinos",v:"Beige / 32",qty:2,price:"₦24,000"}].map((item,i)=>(
+                <div key={i} style={{display:"flex",gap:10,padding:"9px 0",borderBottom:`1px solid ${T.border2}`}}>
+                  <WfImg height={44} style={{width:44,flexShrink:0,borderRadius:T.r.sm}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{item.name}</div>
+                    <div style={{fontSize:9,color:T.text3}}>{item.v} · Qty: {item.qty}</div>
+                  </div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{item.price}</div>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:9,fontSize:10}}>
+                <span style={{color:T.text2}}>Total Paid</span>
+                <span style={{fontWeight:700,color:T.text0}}>₦36,000</span>
+              </div>
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT */}
+        <div>
+          {/* CUSTOMER INFO */}
+          <WfSection num="04" label="Customer Info">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13,marginBottom:11}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
+                <div style={{width:32,height:32,borderRadius:"50%",background:T.blueLight,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:11,fontWeight:700,color:T.blueText}}>JA</div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:T.text0}}>John Adebayo</div>
+                  <div style={{fontSize:9,color:T.blueText,cursor:"pointer"}}>john@email.com</div>
+                </div>
+              </div>
+              <div style={{height:1,background:T.border2,marginBottom:9}}/>
+              <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:5}}>Delivery Address</div>
+              <div style={{fontSize:10,color:T.text1,lineHeight:1.65}}>12 Marina Street<br/>Lagos Island, Lagos</div>
+            </div>
+          </WfSection>
+
+          {/* PAYMENT INFO */}
+          <WfSection num="05" label="Payment Info">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13,marginBottom:11}}>
+              {[["Provider","Stripe",false],["Transaction ID","pi_3P...xQZ2",true],["Amount","₦36,000",false],["Status","SUCCESS",false]].map(([l,v,mono])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontSize:10}}>
+                  <span style={{color:T.text2}}>{l}</span>
+                  <span style={{color:T.text0,fontFamily:mono?T.mono:"inherit",fontSize:mono?9:10}}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          {/* REFUND */}
+          <WfSection num="06" label="Refund (Confirmed/Delivered orders only)">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:8}}>Process Refund</div>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Refund Amount</label>
+              <input readOnly defaultValue="₦36,000" style={{width:"100%",border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,
+                fontFamily:T.font,marginBottom:8}}/>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Reason</label>
+              <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font,
+                color:T.text1,marginBottom:10}}>
+                <option>Customer request</option><option>Damaged item</option>
+                <option>Wrong item</option><option>Other</option>
+              </select>
+              <button style={{width:"100%",background:"transparent",color:T.red,
+                border:`1px solid #FECACA`,borderRadius:T.r.md,padding:"8px 0",
+                fontSize:10,cursor:"pointer",fontFamily:T.font}}>Process Refund</button>
+              <WfAnnot>processRefund() · Calls provider refund API · Restores stock · Sets order to REFUNDED</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN FLASH SALE MANAGER
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminFlashSales(){
+  const active=[
+    {name:"Summer Clearance",  start:"17 Mar 09:00",end:"17 Mar 23:59",items:8, countdown:"13:42:08"},
+    {name:"Electronics Week",  start:"15 Mar 00:00",end:"21 Mar 23:59",items:12,countdown:"4d 10:08"},
+  ];
+  const others=[
+    {name:"Weekend Mega Sale","start":"20 Mar 00:00","end":"20 Mar 23:59",items:0, status:"Upcoming",bg:"#FAEEDA",col:"#633806"},
+    {name:"January Clearance","start":"01 Jan 00:00","end":"07 Jan 23:59",items:15,status:"Ended",   bg:"#FCEBEB",col:"#791F1F"},
+  ];
+  return(
+    <WfAdminLayout active="admin_flash"
+      headerRight={<WfBtn primary style={{fontSize:10}}>+ Create Flash Sale</WfBtn>}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:14}}>Flash Sale Manager</div>
+
+      {/* CREATE FORM */}
+      <WfSection num="01" label="Create Flash Sale Form">
+        <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:11}}>New Flash Sale</div>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:11,marginBottom:11}}>
+            {[["Sale Name","text","e.g. Summer Clearance"],["Start Time","datetime-local",null],["End Time","datetime-local",null]].map(([lbl,type,ph])=>(
+              <div key={lbl}>
+                <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{lbl}</label>
+                <input readOnly type={type} placeholder={ph||undefined}
+                  style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                  padding:"7px 10px",fontSize:type==="datetime-local"?10:11,
+                  background:T.bg0,fontFamily:T.font}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <WfBtn primary style={{fontSize:10}}>Create Sale</WfBtn>
+            <WfAnnot>endExpiredFlashSales() cron runs every minute · Auto-sets is_active=false at end_time · sendNewsletterEmail() triggered on creation</WfAnnot>
+          </div>
+        </div>
+      </WfSection>
+
+      {/* ACTIVE SALES */}
+      <WfSection num="02" label="Active Flash Sale Cards (LIVE — one card per concurrent active sale)">
+        <div style={{paddingTop:8}}>
+          {active.map((sale,si)=>(
+            <div key={si} style={{border:`1.5px solid #FECACA`,borderRadius:T.r.lg,marginBottom:13,overflow:"hidden"}}>
+              {/* Card header */}
+              <div style={{background:T.redLight,padding:"10px 14px",
+                display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:13,fontWeight:700,color:T.red}}>⚡ {sale.name}</span>
+                  <span style={{background:T.bg0,color:T.red,borderRadius:T.r.sm,
+                    padding:"1px 8px",fontSize:9,fontWeight:700}}>LIVE</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:11}}>
+                  <div style={{fontSize:10,color:T.red}}>
+                    Ends in: <span style={{fontFamily:T.mono,fontWeight:700}}>{sale.countdown}</span>
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    {["Edit","End Sale"].map(a=>(
+                      <button key={a} style={{fontSize:9,color:T.red,background:"transparent",
+                        border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"3px 9px",cursor:"pointer"}}>{a}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* Card body */}
+              <div style={{padding:"12px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
+                  <div style={{fontSize:10,color:T.text2}}>{sale.items} products · {sale.start} → {sale.end}</div>
+                  <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                    border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"3px 9px",cursor:"pointer"}}>+ Add Products</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                  {[1,2,3,4,5].map(i=>(
+                    <div key={i} style={{border:`1px solid ${T.border1}`,borderRadius:T.r.md,overflow:"hidden"}}>
+                      <WfImg height={60} style={{borderRadius:0}}/>
+                      <div style={{padding:"5px 7px"}}>
+                        <WfLine w="80%" h={9} mb={3}/>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <WfLine w={40} h={9} mb={0}/>
+                          <button style={{fontSize:9,color:T.red,background:"transparent",
+                            border:"none",cursor:"pointer"}}>✕</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+          <WfAnnot>LIVE badge has pulse animation (opacity 1↔0.5, 1.5s infinite) · Countdown timer shared component with buyer flash sales page · End Sale requires confirmation dialog</WfAnnot>
+        </div>
+      </WfSection>
+
+      {/* UPCOMING + PAST TABLE */}
+      <WfSection num="03" label="Upcoming + Past Sales Table">
+        <div style={{paddingTop:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:T.bg2,borderBottom:`1px solid ${T.border0}`}}>
+                {["Sale Name","Start","End","Items","Status","Actions"].map(h=>(
+                  <th key={h} style={{padding:"7px 10px",textAlign:"left",fontSize:9,
+                    fontWeight:600,color:T.text3}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {others.map((s,ri)=>(
+                <tr key={ri} style={{borderBottom:`1px solid ${T.border2}`,background:ri%2===0?T.bg0:T.bg2}}>
+                  <td style={{padding:"7px 10px",fontSize:10,fontWeight:600,color:T.text0}}>{s.name}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text3}}>{s.start}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text3}}>{s.end}</td>
+                  <td style={{padding:"7px 10px",fontSize:9,color:T.text2,textAlign:"center"}}>{s.items}</td>
+                  <td style={{padding:"7px 10px"}}>
+                    <div style={{background:s.bg,color:s.col,borderRadius:T.r.sm,
+                      padding:"2px 6px",fontSize:9,fontWeight:600,display:"inline-block"}}>{s.status}</div>
+                  </td>
+                  <td style={{padding:"7px 10px"}}>
+                    <div style={{display:"flex",gap:5}}>
+                      <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                        border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"2px 8px",cursor:"pointer"}}>Edit</button>
+                      <button style={{fontSize:9,color:T.red,background:"transparent",
+                        border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"2px 8px",cursor:"pointer"}}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN CUSTOMER MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminCustomers(){
+  const customers=[
+    {name:"John Adebayo",  email:"john@email.com",   country:"NG",joined:"Jan 2025",orders:12,spent:"₦248k",sub:true},
+    {name:"Amaka Okonkwo", email:"amaka@email.com",  country:"NG",joined:"Mar 2025",orders:5, spent:"₦82k", sub:false},
+    {name:"Tunde Bashir",  email:"tunde@email.com",  country:"NG",joined:"Jun 2025",orders:8, spent:"₦145k",sub:true},
+    {name:"Ngozi Eze",     email:"ngozi@email.com",  country:"GH",joined:"Aug 2025",orders:3, spent:"₦41k", sub:true},
+    {name:"Kemi Adeyemi",  email:"kemi@email.com",   country:"NG",joined:"Nov 2025",orders:21,spent:"₦392k",sub:false},
+  ];
+  const initials=n=>n.split(" ").map(w=>w[0]).join("");
+  return(
+    <WfAdminLayout active="admin_customers"
+      headerRight={<WfBtn style={{fontSize:9,padding:"5px 12px"}}>Export CSV</WfBtn>}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Customer Management</div>
+      </div>
+
+      {/* FILTER ROW */}
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <input readOnly placeholder="Search by name or email…" style={{flex:2,border:`1px solid ${T.border0}`,
+          borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+        {["All Customers","Sort: Newest"].map(p=>(
+          <select key={p} style={{flex:1,border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font,color:T.text2}}>
+            <option>{p}</option>
+          </select>
+        ))}
+      </div>
+
+      {/* CUSTOMERS TABLE */}
+      <WfSection num="01" label="Customers Table (avatar initials · newsletter ✓ column)">
+        <div style={{overflowX:"auto",paddingTop:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:T.bg2,borderBottom:`1px solid ${T.border0}`}}>
+                {["Customer","Email","Country","Joined","Orders","Total Spent","Newsletter","Actions"].map(h=>(
+                  <th key={h} style={{padding:"7px 9px",textAlign:"left",fontSize:9,
+                    fontWeight:600,color:T.text3,whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {customers.map((c,ri)=>(
+                <tr key={c.name} style={{borderBottom:`1px solid ${T.border2}`,background:ri%2===0?T.bg0:T.bg2}}>
+                  <td style={{padding:"7px 9px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:T.blueLight,
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:9,fontWeight:700,color:T.blueText}}>{initials(c.name)}</div>
+                      <span style={{fontSize:10,fontWeight:600,color:T.text0}}>{c.name}</span>
+                    </div>
+                  </td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text2}}>{c.email}</td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text3}}>{c.country}</td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text3}}>{c.joined}</td>
+                  <td style={{padding:"7px 9px",fontSize:10,fontWeight:600,color:T.text0,textAlign:"center"}}>{c.orders}</td>
+                  <td style={{padding:"7px 9px",fontSize:10,fontWeight:600,color:T.text0}}>{c.spent}</td>
+                  <td style={{padding:"7px 9px",textAlign:"center"}}>
+                    <span style={{fontSize:9,color:c.sub?T.green:T.text3,fontWeight:600}}>{c.sub?"✓":"–"}</span>
+                  </td>
+                  <td style={{padding:"7px 9px"}}>
+                    <button style={{fontSize:9,color:T.blueText,background:"transparent",
+                      border:`1px solid ${T.blueBorder}`,borderRadius:T.r.sm,padding:"2px 8px",cursor:"pointer"}}>View</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </WfSection>
+
+      {/* CUSTOMER DETAIL PANEL */}
+      <WfSection num="02" label="Customer Detail Panel (expands inline on View click)">
+        <div style={{border:`1px solid ${T.border0}`,borderRadius:T.r.lg,padding:16,background:T.bg2,marginTop:8}}>
+          <div style={{display:"flex",gap:13,alignItems:"flex-start",marginBottom:13}}>
+            <div style={{width:44,height:44,borderRadius:"50%",background:T.blueLight,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:14,fontWeight:700,color:T.blueText,flexShrink:0}}>JA</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text0}}>John Adebayo</div>
+              <div style={{fontSize:10,color:T.text2}}>john@email.com · +234 801 234 5678 · Nigeria</div>
+              <div style={{fontSize:9,color:T.text3,marginTop:2}}>Joined Jan 2025 · Last active 2 hours ago · Google Auth</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,minWidth:240}}>
+              {[["12","Total Orders"],["₦248k","Total Spent"],["3","Wishlists"]].map(([v,l])=>(
+                <div key={l} style={{background:T.bg0,borderRadius:T.r.md,padding:9,textAlign:"center"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text0}}>{v}</div>
+                  <div style={{fontSize:9,color:T.text3,marginTop:2}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{fontSize:10,fontWeight:600,color:T.text0,marginBottom:8}}>Recent Orders</div>
+          {[["ORD-20260317","₦36,000","Confirmed","#E1F5EE","#085041"],
+            ["ORD-20260310","₦22,000","Delivered","#EAF3DE","#27500A"]].map(([ref,amt,s,bg,col])=>(
+            <div key={ref} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"5px 0",borderBottom:`1px solid ${T.border2}`,fontSize:9}}>
+              <span style={{fontFamily:T.mono,color:T.text0}}>{ref}</span>
+              <span style={{color:T.text2}}>{amt}</span>
+              <div style={{background:bg,color:col,borderRadius:T.r.sm,padding:"2px 6px",fontSize:8,fontWeight:600}}>{s}</div>
+            </div>
+          ))}
+        </div>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN REVIEW MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminReviews(){
+  const pending=[
+    {product:"Classic Tailored Blazer",buyer:"Amaka O.",rating:5,comment:"Absolutely gorgeous blazer! The fabric quality is excellent and it fits perfectly. Highly recommend.",date:"2 hours ago"},
+    {product:"Slim Fit Chinos",buyer:"Tunde B.",rating:3,comment:"Decent quality but the colour looked different from the product photos. A bit disappointed.",date:"5 hours ago"},
+  ];
+  const published=[
+    {prod:"Classic Blazer",buyer:"John A.",rating:5,excerpt:"Absolutely love this...",date:"15 Mar",helpful:12},
+    {prod:"Slim Chinos",   buyer:"Kemi A.",rating:4,excerpt:"Good quality, fits...",  date:"08 Mar",helpful:7},
+    {prod:"Oxford Shoes",  buyer:"Ngozi E.",rating:2,excerpt:"Disappointed with...",  date:"01 Mar",helpful:2},
+  ];
+  return(
+    <WfAdminLayout active="admin_reviews">
+      {/* HEADER + TOGGLE */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Review Management</div>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontSize:10,color:T.text2}}>Require approval before publishing:</span>
+          <div style={{width:34,height:18,borderRadius:99,background:T.blue,
+            border:`1px solid ${T.blueBorder}`,position:"relative",cursor:"pointer"}}>
+            <div style={{position:"absolute",right:2,top:2,width:14,height:14,
+              background:"#fff",borderRadius:"50%"}}/>
+          </div>
+          <span style={{fontSize:9,color:T.blueText,fontWeight:600}}>ON</span>
+        </div>
+      </div>
+
+      {/* FILTER TABS */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {[["Pending Approval (6)",true,"#FFFBEB","#FDE68A","#B45309"],["All Reviews (142)",false],["Published (136)",false],["Rejected (0)",false]].map(([t,active,bg,border,col])=>(
+          <button key={t} style={{padding:"5px 11px",border:`1px solid ${active?border:T.border0}`,
+            background:active?(bg||"transparent"):"transparent",borderRadius:T.r.md,
+            fontSize:10,color:active?(col||T.text1):T.text2,cursor:"pointer"}}>{t}</button>
+        ))}
+      </div>
+
+      {/* PENDING REVIEWS */}
+      <WfSection num="01" label="Pending Reviews (require approval = ON — warning-coloured cards)">
+        <div style={{paddingTop:8}}>
+          {pending.map((rev,i)=>(
+            <div key={i} style={{border:`1px solid #FDE68A`,borderRadius:T.r.lg,
+              padding:13,marginBottom:11,background:"#FFFBEB"}}>
+              <div style={{display:"flex",gap:11,alignItems:"flex-start",marginBottom:10}}>
+                <WfImg height={40} style={{width:40,flexShrink:0,borderRadius:T.r.sm}}/>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:600,color:T.text0}}>{rev.product}</div>
+                      <div style={{fontSize:9,color:T.text3}}>by {rev.buyer} · Verified purchase · {rev.date}</div>
+                    </div>
+                    <div style={{fontSize:12,color:T.yellow,letterSpacing:1}}>{"★".repeat(rev.rating)}{"☆".repeat(5-rev.rating)}</div>
+                  </div>
+                  <div style={{fontSize:10,color:T.text1,marginTop:6,lineHeight:1.65}}>{rev.comment}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <WfBtn primary style={{fontSize:9,padding:"5px 13px"}}>✓ Approve</WfBtn>
+                <button style={{background:"transparent",color:T.red,border:`1px solid #FECACA`,
+                  borderRadius:T.r.md,padding:"5px 13px",fontSize:9,cursor:"pointer",fontFamily:T.font}}>✕ Reject & Delete</button>
+              </div>
+            </div>
+          ))}
+          <WfAnnot>require_review_approval toggle updates SiteSettings instantly · calculateAverageRating() called after approve or delete · Only admin can delete reviews</WfAnnot>
+        </div>
+      </WfSection>
+
+      {/* ALL PUBLISHED TABLE */}
+      <WfSection num="02" label="All Published Reviews Table">
+        <div style={{paddingTop:8}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:T.bg2,borderBottom:`1px solid ${T.border0}`}}>
+                {["Product","Buyer","Rating","Excerpt","Date","Helpful","Action"].map(h=>(
+                  <th key={h} style={{padding:"7px 9px",textAlign:"left",fontSize:9,fontWeight:600,color:T.text3}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {published.map((r,ri)=>(
+                <tr key={ri} style={{borderBottom:`1px solid ${T.border2}`,background:ri%2===0?T.bg0:T.bg2}}>
+                  <td style={{padding:"7px 9px",fontSize:10,fontWeight:600,color:T.text0}}>{r.prod}</td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text2}}>{r.buyer}</td>
+                  <td style={{padding:"7px 9px"}}><span style={{color:T.yellow,fontSize:10}}>{"★".repeat(r.rating)}</span></td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text3,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.excerpt}</td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text3,whiteSpace:"nowrap"}}>{r.date}</td>
+                  <td style={{padding:"7px 9px",fontSize:9,color:T.text2,textAlign:"center"}}>{r.helpful}</td>
+                  <td style={{padding:"7px 9px"}}>
+                    <button style={{fontSize:9,color:T.red,background:"transparent",
+                      border:`1px solid #FECACA`,borderRadius:T.r.sm,padding:"2px 8px",cursor:"pointer"}}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </WfSection>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN MESSAGES + CHAT
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminMessages(){
+  const msgs=[
+    {name:"Amaka Okonkwo",subj:"Order not received",   time:"2h ago",  read:false,replied:false},
+    {name:"Tunde Bashir",  subj:"Return request",       time:"5h ago",  read:false,replied:false},
+    {name:"John Adebayo",  subj:"Wrong item received",  time:"Yesterday",read:true, replied:true},
+    {name:"Ngozi Eze",     subj:"Product question",     time:"2 days ago",read:true,replied:false},
+  ];
+  const chats=[
+    {name:"Visitor #4821",msg:"Hi, do you have size XL in the blue blazer?",time:"just now",unread:true},
+    {name:"Kemi Adeyemi", msg:"My order hasn't shipped yet, when will it?",  time:"5 min",  unread:true},
+    {name:"Anonymous",    msg:"What are your return policy terms?",           time:"12 min", unread:false},
+  ];
+  const initials=n=>n.split(" ").map(w=>w[0]).join("");
+  return(
+    <WfAdminLayout active="admin_contact">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+
+        {/* LEFT: Contact messages */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:11}}>
+            <div style={{fontSize:13,fontWeight:700,color:T.text0}}>Contact Messages</div>
+            <span style={{background:T.redLight,color:T.red,borderRadius:T.r.full,
+              padding:"1px 8px",fontSize:8,fontWeight:700}}>8 unread</span>
+          </div>
+          <div style={{display:"flex",gap:5,marginBottom:11}}>
+            {[["All (24)",true],["Unread (8)",false],["Unreplied (5)",false]].map(([t,active])=>(
+              <button key={t} style={{padding:"4px 10px",border:`1px solid ${active?T.blueBorder:T.border0}`,
+                background:active?T.blueLight:"transparent",borderRadius:T.r.sm,
+                fontSize:9,color:active?T.blueText:T.text2,cursor:"pointer"}}>{t}</button>
+            ))}
+          </div>
+
+          <WfSection num="01" label="Message List">
+            <div>
+              {msgs.map((msg,i)=>(
+                <div key={i} style={{display:"flex",gap:9,padding:"9px 0",
+                  borderBottom:`1px solid ${T.border2}`,cursor:"pointer",
+                  background:i===0?T.blueLight:"transparent",
+                  margin:"0 -16px",paddingLeft:16,paddingRight:16}}>
+                  <div style={{width:28,height:28,borderRadius:"50%",background:T.bg2,
+                    border:`1px solid ${T.border0}`,display:"flex",alignItems:"center",
+                    justifyContent:"center",fontSize:9,fontWeight:700,color:T.text2,flexShrink:0}}>
+                    {initials(msg.name)}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                      <div style={{fontSize:10,fontWeight:!msg.read?600:400,color:T.text0}}>{msg.name}</div>
+                      <div style={{fontSize:8,color:T.text3,whiteSpace:"nowrap"}}>{msg.time}</div>
+                    </div>
+                    <div style={{fontSize:9,color:T.text2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:3}}>{msg.subj}</div>
+                    <div style={{display:"flex",gap:4}}>
+                      {!msg.read&&<span style={{background:T.blueLight,color:T.blueText,borderRadius:T.r.sm,padding:"0 5px",fontSize:8,fontWeight:600}}>Unread</span>}
+                      {!msg.replied
+                        ?<span style={{background:"#FFFBEB",color:"#B45309",borderRadius:T.r.sm,padding:"0 5px",fontSize:8,fontWeight:600}}>Unreplied</span>
+                        :<span style={{background:T.greenLight,color:T.green,borderRadius:T.r.sm,padding:"0 5px",fontSize:8,fontWeight:600}}>Replied</span>
+                      }
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          {/* MESSAGE DETAIL + REPLY */}
+          <WfSection num="02" label="Message Detail + Reply (selected message)">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13,marginTop:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:9}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:T.text0}}>Amaka Okonkwo</div>
+                  <div style={{fontSize:9,color:T.text3}}>amaka@email.com · 2 hours ago</div>
+                </div>
+                <div style={{background:"#FAEEDA",color:"#633806",borderRadius:T.r.sm,padding:"2px 7px",fontSize:9,fontWeight:600}}>Unreplied</div>
+              </div>
+              <div style={{fontSize:11,fontWeight:600,color:T.text0,marginBottom:7}}>Order not received</div>
+              <div style={{fontSize:10,color:T.text1,lineHeight:1.7,background:T.bg2,
+                borderRadius:T.r.md,padding:11,marginBottom:11}}>
+                Hello, I placed order ORD-20260310-B9K2M7QP over a week ago and have not received it yet. The tracking still shows "In Transit". Please help.
+              </div>
+              <label style={{fontSize:9,fontWeight:600,color:T.text3,letterSpacing:"0.08em",
+                textTransform:"uppercase",display:"block",marginBottom:7}}>Admin Reply</label>
+              <textarea readOnly placeholder="Type your reply to Amaka…"
+                style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:10,height:70,resize:"none",
+                fontFamily:T.font,marginBottom:10,background:T.bg0,color:T.text2}}/>
+              <div style={{display:"flex",gap:7}}>
+                <WfBtn primary style={{fontSize:10}}>Send Reply</WfBtn>
+                <button style={{background:"transparent",color:T.red,border:`1px solid #FECACA`,
+                  borderRadius:T.r.md,padding:"7px 14px",fontSize:10,cursor:"pointer",fontFamily:T.font}}>Delete Message</button>
+              </div>
+              <WfAnnot>replyToContactMessage() · Sends email to sender · Sets is_replied=true + replied_at=NOW()</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT: Live chat */}
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text0,marginBottom:11}}>
+            Message Detail + Reply
+          </div>
+          <WfSection num="03" label="Live Chat Sessions Inbox (real-time SSE)">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13,marginTop:2}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.text0}}>
+                  Live Chat Sessions{" "}
+                  <span style={{background:T.redLight,color:T.red,borderRadius:T.r.full,
+                    padding:"0 7px",fontSize:8,fontWeight:700}}>5 active</span>
+                </div>
+              </div>
+              {chats.map((chat,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"8px 0",
+                  borderBottom:`1px solid ${T.border2}`,cursor:"pointer"}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,marginTop:5,
+                    background:chat.unread?T.blue:"transparent"}}/>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                      <span style={{fontSize:10,fontWeight:600,color:T.text0}}>{chat.name}</span>
+                      <span style={{fontSize:8,color:T.text3}}>{chat.time}</span>
+                    </div>
+                    <div style={{fontSize:9,color:T.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{chat.msg}</div>
+                  </div>
+                </div>
+              ))}
+              <WfAnnot>Real-time SSE · getChatHistory() · sendChatMessage() · closeChatSession()</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN REPORTS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminReports(){
+  const bars=[30,45,38,62,75,58,80,42,68,72,85,55,90,78,65,82,70,55,88,92,75,60,85,95,72,80,65,88,82,78];
+  return(
+    <WfAdminLayout active="admin_reports"
+      headerRight={<WfBtn style={{fontSize:9,padding:"5px 12px"}}>Export CSV</WfBtn>}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.text0}}>Sales Report</div>
+        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+          <input type="date" style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"5px 10px",fontSize:10,background:T.bg0,fontFamily:T.font,width:120}}/>
+          <span style={{fontSize:10,color:T.text3}}>to</span>
+          <input type="date" style={{border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+            padding:"5px 10px",fontSize:10,background:T.bg0,fontFamily:T.font,width:120}}/>
+          <WfBtn primary style={{fontSize:10}}>Apply</WfBtn>
+        </div>
+      </div>
+
+      {/* KPI CARDS */}
+      <WfSection num="01" label="KPI Summary Cards">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:9,padding:"14px 0"}}>
+          {[["₦4.2M","Total Revenue","+18%"],["248","Total Orders","+12%"],["₦16,935","Avg Order Value","+5%"],["89%","Payment Success Rate","+2%"]].map(([v,l,chg])=>(
+            <div key={l} style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13}}>
+              <div style={{fontSize:9,color:T.text3,marginBottom:5}}>{l}</div>
+              <div style={{fontSize:20,fontWeight:700,color:T.text0,marginBottom:3}}>{v}</div>
+              <div style={{fontSize:9,color:T.green,fontWeight:500}}>{chg} vs prev period</div>
+            </div>
+          ))}
+        </div>
+      </WfSection>
+
+      {/* REVENUE CHART */}
+      <WfSection num="02" label="Revenue Chart (30-day daily bars · 30D active · today highlighted)">
+        <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.text0}}>Daily Revenue</div>
+            <div style={{display:"flex",gap:4}}>
+              {["7D","30D","90D","1Y"].map((t,i)=>(
+                <button key={t} style={{padding:"2px 8px",border:`1px solid ${i===1?T.blueBorder:T.border0}`,
+                  background:i===1?T.blueLight:"transparent",borderRadius:T.r.sm,
+                  fontSize:9,color:i===1?T.blueText:T.text3,cursor:"pointer"}}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{height:90,display:"flex",alignItems:"flex-end",gap:2,
+            borderBottom:`1px solid ${T.border1}`,paddingBottom:3}}>
+            {bars.map((h,i)=>(
+              <div key={i} style={{flex:1,background:i===bars.length-1?T.blueLight:T.bg3,
+                border:`1px solid ${i===bars.length-1?T.blueBorder:T.border1}`,
+                borderRadius:"2px 2px 0 0",height:`${h}%`,minWidth:0}}/>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:6,fontSize:8,color:T.text3}}>
+            {["1 Mar","8 Mar","15 Mar","22 Mar","Today"].map(l=><span key={l}>{l}</span>)}
+          </div>
+        </div>
+      </WfSection>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:13}}>
+        {/* TOP 10 PRODUCTS */}
+        <WfSection num="03" label="Top Products by Revenue">
+          <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13}}>
+            {[["Classic Tailored Blazer","₦842,000",42],["Slim Fit Chinos","₦624,000",52],["Oxford Shoes","₦580,000",26],["Summer Dress","₦412,000",38],["Cotton Shirt","₦388,000",48]].map(([name,rev,units],i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",borderBottom:`1px solid ${T.border2}`}}>
+                <div style={{width:18,height:18,borderRadius:"50%",background:T.bg2,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:8,color:T.text3,flexShrink:0}}>{i+1}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{name}</div>
+                  <div style={{fontSize:9,color:T.text3}}>{units} units sold</div>
+                </div>
+                <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{rev}</div>
+              </div>
+            ))}
+          </div>
+        </WfSection>
+
+        {/* TRAFFIC FUNNEL */}
+        <WfSection num="04" label="Traffic Conversion Funnel">
+          <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:13}}>
+            {[["Site Visits","8,420",100],["Product Views","4,210",50],["Added to Cart","1,680",20],["Checkout Started","840",10],["Purchases","692",8.2]].map(([stage,count,pct])=>(
+              <div key={stage} style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:10}}>
+                  <span style={{color:T.text2}}>{stage}</span>
+                  <div>
+                    <span style={{fontWeight:600,color:T.text0}}>{count}</span>
+                    <span style={{color:T.text3,marginLeft:6}}>{pct}%</span>
+                  </div>
+                </div>
+                <div style={{height:5,background:T.bg3,borderRadius:99}}>
+                  <div style={{height:"100%",width:`${pct}%`,background:T.blue,borderRadius:99}}/>
+                </div>
+              </div>
+            ))}
+            <WfAnnot>getTrafficReport() · recordPageView() · recordCartAbandonment()</WfAnnot>
+          </div>
+        </WfSection>
+      </div>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WIREFRAME: ADMIN SITE SETTINGS
+// ══════════════════════════════════════════════════════════════════════════════
+function WireframeAdminSettings(){
+  return(
+    <WfAdminLayout active="admin_settings"
+      headerRight={<WfBtn primary style={{fontSize:10}}>Save All Settings</WfBtn>}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text0,marginBottom:16}}>Site Settings</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:13}}>
+        {/* LEFT COLUMN */}
+        <div>
+          {/* GENERAL */}
+          <WfSection num="01" label="General">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              {[["Site Name","WillOfGod"],["Admin Email","admin@willofgod.com"]].map(([lbl,val])=>(
+                <div key={lbl} style={{marginBottom:12}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{lbl}</label>
+                  <input readOnly defaultValue={val} style={{width:"100%",border:`1px solid ${T.border0}`,
+                    borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,color:T.text0}}/>
+                </div>
+              ))}
+              {/* Logo */}
+              {[["Site Logo",48],["Favicon",32]].map(([lbl,sz])=>(
+                <div key={lbl} style={{marginBottom:12}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{lbl}</label>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <WfImg height={sz} style={{width:sz,borderRadius:T.r.md,flexShrink:0}}/>
+                    <WfBtn style={{fontSize:9,padding:"4px 11px"}}>Upload New</WfBtn>
+                    {lbl==="Site Logo"&&<button style={{background:"transparent",color:T.red,
+                      border:`1px solid #FECACA`,borderRadius:T.r.md,padding:"4px 11px",
+                      fontSize:9,cursor:"pointer",fontFamily:T.font}}>Remove</button>}
+                  </div>
+                </div>
+              ))}
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Currency</label>
+              <select style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,color:T.text0}}>
+                <option>NGN — Nigerian Naira (₦)</option>
+                <option>USD — US Dollar ($)</option>
+                <option>GBP — British Pound (£)</option>
+              </select>
+            </div>
+          </WfSection>
+
+          {/* SHIPPING */}
+          <WfSection num="02" label="Shipping">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              {[["Standard Shipping Fee (₦)","1500"],["Free Shipping Threshold (₦)","10000"]].map(([lbl,val])=>(
+                <div key={lbl} style={{marginBottom:10}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{lbl}</label>
+                  <input readOnly defaultValue={val} type="number" style={{width:"100%",border:`1px solid ${T.border0}`,
+                    borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,color:T.text0}}/>
+                </div>
+              ))}
+              <WfAnnot>Orders above the free shipping threshold get free shipping automatically</WfAnnot>
+            </div>
+          </WfSection>
+
+          {/* PAYMENT PROVIDERS */}
+          <WfSection num="03" label="Payment Providers">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+              {[["Stripe (Card)","stripe_enabled"],["PayPal","paypal_enabled"],["Paystack (Card/Bank/USSD)","paystack_enabled"]].map(([name,key])=>(
+                <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"9px 0",borderBottom:`1px solid ${T.border2}`}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:600,color:T.text0}}>{name}</div>
+                    <div style={{fontSize:9,color:T.text3}}>{key}</div>
+                  </div>
+                  <div style={{width:34,height:18,borderRadius:99,background:T.blue,
+                    border:`1px solid ${T.blueBorder}`,position:"relative",cursor:"pointer"}}>
+                    <div style={{position:"absolute",right:2,top:2,width:14,height:14,background:"#fff",borderRadius:"50%"}}/>
+                  </div>
+                </div>
+              ))}
+              <WfAnnot>Only enabled providers appear on checkout page · Updates immediately on save</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <div>
+          {/* REVIEWS + STOCK */}
+          <WfSection num="04" label="Reviews + Stock">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${T.border2}`}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0}}>Require review approval</div>
+                  <div style={{fontSize:9,color:T.text3}}>Reviews go to pending before publishing</div>
+                </div>
+                <div style={{width:34,height:18,borderRadius:99,background:T.blue,
+                  border:`1px solid ${T.blueBorder}`,position:"relative",cursor:"pointer"}}>
+                  <div style={{position:"absolute",right:2,top:2,width:14,height:14,background:"#fff",borderRadius:"50%"}}/>
+                </div>
+              </div>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Low Stock Alert Threshold</label>
+              <input readOnly defaultValue="10" type="number" style={{width:"100%",border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font,color:T.text0}}/>
+              <WfAnnot>sendLowStockAlertsJob runs every 6h for variants below this threshold</WfAnnot>
+            </div>
+          </WfSection>
+
+          {/* SOCIAL LINKS */}
+          <WfSection num="05" label="Social Links">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14,marginBottom:13}}>
+              {["Facebook URL","Instagram URL","Twitter / X URL","YouTube URL"].map(lbl=>(
+                <div key={lbl} style={{marginBottom:10}}>
+                  <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>{lbl}</label>
+                  <input readOnly placeholder="https://…" style={{width:"100%",border:`1px solid ${T.border0}`,
+                    borderRadius:T.r.md,padding:"7px 10px",fontSize:11,background:T.bg0,fontFamily:T.font}}/>
+                </div>
+              ))}
+            </div>
+          </WfSection>
+
+          {/* MAINTENANCE MODE */}
+          <WfSection num="06" label="Maintenance Mode">
+            <div style={{background:T.bg0,border:`1px solid ${T.border1}`,borderRadius:T.r.lg,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.text0}}>Maintenance Mode</div>
+                  <div style={{fontSize:9,color:T.red}}>Blocks all visitor + buyer access</div>
+                </div>
+                {/* Toggle OFF */}
+                <div style={{width:34,height:18,borderRadius:99,background:T.bg3,
+                  border:`1px solid ${T.border0}`,position:"relative",cursor:"pointer"}}>
+                  <div style={{position:"absolute",left:2,top:2,width:14,height:14,background:"#fff",borderRadius:"50%"}}/>
+                </div>
+              </div>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Maintenance Message</label>
+              <textarea readOnly placeholder="We're performing scheduled maintenance…"
+                style={{width:"100%",border:`1px solid ${T.border0}`,borderRadius:T.r.md,
+                padding:"8px 10px",fontSize:10,height:58,resize:"none",
+                fontFamily:T.font,marginBottom:10,background:T.bg0,color:T.text2}}/>
+              <label style={{fontSize:10,fontWeight:600,color:T.text1,marginBottom:5,display:"block"}}>Estimated Completion</label>
+              <input type="datetime-local" style={{width:"100%",border:`1px solid ${T.border0}`,
+                borderRadius:T.r.md,padding:"7px 10px",fontSize:10,background:T.bg0,fontFamily:T.font}}/>
+              <WfAnnot>Changes take effect immediately on save · No server restart required · Redis cache invalidated · Enabling requires confirmation dialog</WfAnnot>
+            </div>
+          </WfSection>
+        </div>
+      </div>
+    </WfAdminLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // WIREFRAMES REGISTRY
 // ══════════════════════════════════════════════════════════════════════════════
 const WIREFRAMES = {
-  homepage:      {component:WireframeHomepage,          batch:"Batch 1 — Public Pages",       url:"/"},
-  prod_list:     {component:WireframeProductListing,    batch:"Batch 1 — Public Pages",       url:"/products"},
-  prod_detail:   {component:WireframeProductDetail,     batch:"Batch 1 — Public Pages",       url:"/products/:slug"},
-  cat_pg:        {component:WireframeCategoryPage,      batch:"Batch 1 — Public Pages",       url:"/categories/:slug"},
-  search_pg:     {component:WireframeSearchResults,     batch:"Batch 2 — Discovery Pages",    url:"/search?q="},
-  flash_pg:      {component:WireframeFlashSales,        batch:"Batch 2 — Discovery Pages",    url:"/flash-sales"},
-  arrivals_pg:   {component:WireframeNewArrivals,       batch:"Batch 2 — Discovery Pages",    url:"/new-arrivals"},
-  sale_pg:       {component:WireframeSalePage,          batch:"Batch 2 — Discovery Pages",    url:"/sale"},
-  compare_pg:    {component:WireframeComparison,        batch:"Batch 2 — Discovery Pages",    url:"/compare"},
-  login_pg:      {component:WireframeLogin,             batch:"Batch 3 — Auth Pages",         url:"/login"},
-  signup_pg:     {component:WireframeSignUp,            batch:"Batch 3 — Auth Pages",         url:"/register"},
-  verify_pg:     {component:WireframeEmailVerification, batch:"Batch 3 — Auth Pages",         url:"/verify-email"},
-  forgot_pg:     {component:WireframeForgotPassword,    batch:"Batch 3 — Auth Pages",         url:"/forgot-password"},
-  reset_pg:      {component:WireframeResetPassword,     batch:"Batch 3 — Auth Pages",         url:"/reset-password"},
-  maint_pg:      {component:WireframeMaintenance,       batch:"Batch 3 — Auth Pages",         url:"/maintenance"},
-  cart_pg:       {component:WireframeCart,              batch:"Batch 4 — Buyer Flow",         url:"/cart"},
-  checkout_pg:   {component:WireframeCheckout,          batch:"Batch 4 — Buyer Flow",         url:"/checkout"},
-  payment_pg:    {component:WireframePayment,           batch:"Batch 4 — Buyer Flow",         url:"/payment"},
-  order_conf:    {component:WireframeOrderConfirmation, batch:"Batch 4 — Buyer Flow",         url:"/order-confirmation"},
-  my_orders:     {component:WireframeMyOrders,          batch:"Batch 4 — Buyer Flow",         url:"/account/orders"},
-  order_detail_b:{component:WireframeOrderDetail,       batch:"Batch 4 — Buyer Flow",         url:"/account/orders/:id"},
+  homepage:       {component:WireframeHomepage,           batch:"Batch 1 — Public Pages",           url:"/"},
+  prod_list:      {component:WireframeProductListing,     batch:"Batch 1 — Public Pages",           url:"/products"},
+  prod_detail:    {component:WireframeProductDetail,      batch:"Batch 1 — Public Pages",           url:"/products/:slug"},
+  cat_pg:         {component:WireframeCategoryPage,       batch:"Batch 1 — Public Pages",           url:"/categories/:slug"},
+  search_pg:      {component:WireframeSearchResults,      batch:"Batch 2 — Discovery Pages",        url:"/search?q="},
+  flash_pg:       {component:WireframeFlashSales,         batch:"Batch 2 — Discovery Pages",        url:"/flash-sales"},
+  arrivals_pg:    {component:WireframeNewArrivals,        batch:"Batch 2 — Discovery Pages",        url:"/new-arrivals"},
+  sale_pg:        {component:WireframeSalePage,           batch:"Batch 2 — Discovery Pages",        url:"/sale"},
+  compare_pg:     {component:WireframeComparison,         batch:"Batch 2 — Discovery Pages",        url:"/compare"},
+  login_pg:       {component:WireframeLogin,              batch:"Batch 3 — Auth Pages",             url:"/login"},
+  signup_pg:      {component:WireframeSignUp,             batch:"Batch 3 — Auth Pages",             url:"/register"},
+  verify_pg:      {component:WireframeEmailVerification,  batch:"Batch 3 — Auth Pages",             url:"/verify-email"},
+  forgot_pg:      {component:WireframeForgotPassword,     batch:"Batch 3 — Auth Pages",             url:"/forgot-password"},
+  reset_pg:       {component:WireframeResetPassword,      batch:"Batch 3 — Auth Pages",             url:"/reset-password"},
+  maint_pg:       {component:WireframeMaintenance,        batch:"Batch 3 — Auth Pages",             url:"/maintenance"},
+  cart_pg:        {component:WireframeCart,               batch:"Batch 4 — Buyer Flow",             url:"/cart"},
+  checkout_pg:    {component:WireframeCheckout,           batch:"Batch 4 — Buyer Flow",             url:"/checkout"},
+  payment_pg:     {component:WireframePayment,            batch:"Batch 4 — Buyer Flow",             url:"/payment"},
+  order_conf:     {component:WireframeOrderConfirmation,  batch:"Batch 4 — Buyer Flow",             url:"/order-confirmation"},
+  my_orders:      {component:WireframeMyOrders,           batch:"Batch 4 — Buyer Flow",             url:"/account/orders"},
+  order_detail_b: {component:WireframeOrderDetail,        batch:"Batch 4 — Buyer Flow",             url:"/account/orders/:id"},
+  profile_dash:   {component:WireframeProfileDashboard,   batch:"Batch 5 — Buyer Account",          url:"/account"},
+  edit_profile:   {component:WireframeEditProfile,        batch:"Batch 5 — Buyer Account",          url:"/account/profile"},
+  addresses_pg:   {component:WireframeSavedAddresses,     batch:"Batch 5 — Buyer Account",          url:"/account/addresses"},
+  wishlists_pg:   {component:WireframeWishlists,          batch:"Batch 5 — Buyer Account",          url:"/account/wishlists"},
+  recent_pg:      {component:WireframeRecentlyViewed,     batch:"Batch 5 — Buyer Account",          url:"/account/recently-viewed"},
+  my_reviews:     {component:WireframeMyReviews,          batch:"Batch 5 — Buyer Account",          url:"/account/reviews"},
+  saved_search:   {component:WireframeSavedSearches,      batch:"Batch 5 — Buyer Account",          url:"/account/saved-searches"},
+  notif_pg:       {component:WireframeNotifications,      batch:"Batch 5 — Buyer Account",          url:"/account/notifications"},
+  notif_prefs:    {component:WireframeNotificationPrefs,  batch:"Batch 5 — Buyer Account",          url:"/account/notification-preferences"},
+  about_pg:       {component:WireframeAboutUs,            batch:"Batch 6 — Static & Admin Pages",   url:"/about"},
+  contact_pg:     {component:WireframeContactUs,          batch:"Batch 6 — Static & Admin Pages",   url:"/contact"},
+  faq_pg:         {component:WireframeFaqPage,            batch:"Batch 6 — Static & Admin Pages",   url:"/faq"},
+  policies_pg:    {component:WireframePolicies,           batch:"Batch 6 — Static & Admin Pages",   url:"/shipping-policy"},
+  admin_dash:     {component:WireframeAdminDashboard,     batch:"Batch 6 — Static & Admin Pages",   url:"/admin/dashboard"},
+  admin_prods:    {component:WireframeAdminProducts,      batch:"Batch 6 — Static & Admin Pages",   url:"/admin/products"},
+  admin_orders:   {component:WireframeAdminOrders,        batch:"Batch 7 — Admin Pages",            url:"/admin/orders"},
+  admin_ord_det:  {component:WireframeAdminOrderDetail,   batch:"Batch 7 — Admin Pages",            url:"/admin/orders/:id"},
+  admin_flash:    {component:WireframeAdminFlashSales,    batch:"Batch 7 — Admin Pages",            url:"/admin/flash-sales"},
+  admin_customers:{component:WireframeAdminCustomers,     batch:"Batch 7 — Admin Pages",            url:"/admin/customers"},
+  admin_reviews:  {component:WireframeAdminReviews,       batch:"Batch 7 — Admin Pages",            url:"/admin/reviews"},
+  admin_contact:  {component:WireframeAdminMessages,      batch:"Batch 7 — Admin Pages",            url:"/admin/messages"},
+  admin_reports:  {component:WireframeAdminReports,       batch:"Batch 7 — Admin Pages",            url:"/admin/reports"},
+  admin_settings: {component:WireframeAdminSettings,      batch:"Batch 7 — Admin Pages",            url:"/admin/settings"},
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
